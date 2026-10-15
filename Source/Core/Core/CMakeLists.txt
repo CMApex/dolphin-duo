@@ -78,6 +78,20 @@ add_library(core
   Debugger/RSO.h
   DolphinAnalytics.cpp
   DolphinAnalytics.h
+  Duo/ActionRunner.cpp
+  Duo/ActionRunner.h
+  Duo/Evaluator.cpp
+  Duo/Evaluator.h
+  Duo/Expression.cpp
+  Duo/Expression.h
+  Duo/Manifest.cpp
+  Duo/Manifest.h
+  Duo/MemorySource.h
+  Duo/Runtime.cpp
+  Duo/Runtime.h
+  Duo/Template.cpp
+  Duo/Template.h
+  Duo/Value.h
   DSP/DSPAccelerator.cpp
   DSP/DSPAccelerator.h
   DSP/DSPAnalyzer.cpp
