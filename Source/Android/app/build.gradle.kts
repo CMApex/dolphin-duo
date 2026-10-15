@@ -100,7 +100,12 @@ android {
         ndk {
             // We only officially support arm64-v8a and x86_64.
             // If you want to try building other ABIs anyway, you need -DENABLE_GENERIC=ON.
-            abiFilters += listOf("arm64-v8a", "x86_64") //, "armeabi-v7a", "x86"
+            // Dolphin Duo: -PduoAbis=arm64-v8a builds only the listed ABIs. Unlike Android
+            // Studio's android.injected.build.abi, this keeps a normal installable APK (the
+            // injected property marks the APK android:testOnly).
+            val duoAbis = (project.findProperty("duoAbis") as String?)
+                ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+            abiFilters += duoAbis ?: listOf("arm64-v8a", "x86_64") //, "armeabi-v7a", "x86"
         }
 
         externalNativeBuild {

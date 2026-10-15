@@ -71,7 +71,7 @@ jobs:
         working-directory: Source/Android
         run: |
           set -o pipefail
-          ./gradlew assembleDebug -Pandroid.injected.build.abi=arm64-v8a --stacktrace 2>&1 \
+          ./gradlew assembleDebug -PduoAbis=arm64-v8a --stacktrace 2>&1 \
             | tee "$RUNNER_TEMP/gradle.log"
 
       - name: Report build errors
@@ -105,10 +105,11 @@ jobs:
 
       - name: Collect APK
         run: |
-          # Single-ABI builds can place the APK under intermediates/ instead of outputs/.
+          # Normally outputs/apk/debug; search the build folder in case AGP changes its layout.
           find Source/Android/app/build -name '*.apk' -not -path '*androidTest*' -printf '%s %p\n'
-          apk=$(find Source/Android/app/build -name '*.apk' -path '*debug*' -not -path '*androidTest*' \
-                | head -n 1)
+          apk=$(ls Source/Android/app/build/outputs/apk/debug/*.apk 2>/dev/null | head -n 1)
+          [ -n "$apk" ] || apk=$(find Source/Android/app/build -name '*.apk' -path '*debug*' \
+                                   -not -path '*androidTest*' | head -n 1)
           [ -n "$apk" ] || { echo "::error title=No APK::Gradle produced no debug APK"; exit 1; }
 
           # A test-only APK cannot be installed from a file manager or browser.
