@@ -198,6 +198,21 @@ Write `{{` and `}}` for literal braces.
 
 `table(class, unit_class)` returns the text for a key (hex keys are allowed).
 
+### Text from the disc
+
+Names of characters, classes and items belong to the game, so a companion should not ship them.
+Instead, a table can be the game's own message file, read from the disc when the companion loads:
+
+```json
+"tables": { "msg": "disc:Mess/common.m" },
+"values": [ { "name": "hero", "expr": "default(table(msg, hero_key), substr(hero_key, 5))" } ]
+```
+
+The game's text then shows in the language of the player's disc. Supported today: Intelligent
+Systems message tables (`.m`, as in Fire Emblem: Path of Radiance and Radiant Dawn), LZ10-compressed
+or not; text is Shift-JIS on Japanese releases (game IDs ending in `J`) and Windows-1252 otherwise.
+Without a disc image the table is empty, so give `table()` a `default`, as above.
+
 ---
 
 ## Pages and widgets

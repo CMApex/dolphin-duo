@@ -56,7 +56,9 @@ Settings (Interface → Dolphin Duo):
    dump laid out for it.
 5. Zip the folder and install it.
 
-Companions contain no game assets: images are optional and must be the author's own.
+Companions contain no game assets: their own images and fonts must be the author's (or freely
+licensed), and the game's art and text are read from the player's disc at run time (`disc:`
+images and tables).
 
 ## How it fits together
 
