@@ -21,7 +21,16 @@ Memory map (NTSC-U GFEE01, rev 0), found with the headless harness (Tools/Dolphi
                 +0x1A hit  +0x1B weight
                 +0x1C crit  +0x1D/+0x1E range (might checked: Ike Atk 11 = Str 5 + Trainer 6)
   Chapter state 0x80330719 phase, 0x8033071A turn (u16), 0x80330720 gold, 0x80330728 victory key
-  Cursor        0x8032B238 / 0x8032B23C (f32 tile x / y)
+  Cursor        0x8032B238 / 0x8032B23C (f32 tile x / y); parked at 0, 0 during events
+  Combatants    0x80330EC0 + n*0x2E0, n = 0 (attacker), 1 (defender): copies of the two unit records,
+                then the forecast as s16s: +0x284 Atk, +0x286 Def, +0x288 AS, +0x28A Hit, +0x28C Avoid,
+                +0x290 Crit, +0x292 Dodge (weapon triangle included). Kept after the fight ends.
+  Scenes        Title, menus, movies and story scenes have no map (width 0) and no units. During a
+                battle scene 0x802EFF18 holds two u16 1s and then pointers (0 otherwise); map.bin is
+                unloaded then (data pointer 0). Map size and units linger through Game Over and
+                back to the title, so they alone can't tell a battle scene.
+                Lead, not yet reliable: live gauge HP at [[[0x802EFF24] + 0x32C] + 0x4B0/0x4B4] + 0x6B
+                (left/right) held through the Greil fight but not in a Boyd fight dump.
   Map           0x802EFE60 width, +2 height, +0x0C -> map.bin data, +0x3C map name ("bmap01")
                 map.bin keeps its symbol table; panelindex (u16 per cell) indexes uniquepanel
                 (12 bytes: four corner heights, then a pointer to the terrain name).
@@ -57,19 +66,30 @@ COLORS = {
     'shadow': '#99000000',
 }
 
-# Minimap colours by terrain (the Japanese terrain names the map data uses).
+# Minimap colours by terrain (the Japanese terrain names the map data uses), in the inks of the
+# game's parchment war maps: pale ground, olive woods, blue water, terracotta buildings, umber walls.
+PAPER = '#D8C592'
 TERRAIN_COLOR = {
-    '平地': '#56663A', '床': '#6E675B', '石畳': '#7A7366', '屋根': '#5A3A2A', '木': '#2C4A2A',
-    '橋': '#8A6A3A', '階段': '#6F6A60', '堀': '#2F4D6A', '城門': '#6A4A2A', '川': '#2F5D8A',
-    '崖': '#45454E', '壁': '#2B2B33', '柵': '#6A5A3A', '小物': '#5E5E52', '建物': '#8A5E36',
-    '茂み': '#3A5A30', '宝箱': '#C9A24A', '廃墟': '#6F6253', '砦': '#8A5A2A', '城': '#7A5A3A',
-    '玉座': '#B8962E', '海': '#24507A', '海岸': '#8E9A6A', '池': '#2F5D8A', '水路': '#2F5D8A',
-    '砂漠': '#B8A46A', '雪原': '#D8DDE6', '沼': '#4A5A3A', '山道': '#7A6A4A', '岩': '#55555C',
-    '扉': '#6A4A2A', '壊れる扉': '#6A4A2A', '柱': '#3A3A42', '噴水': '#4A7AA0', '花壇': '#6E7A3A',
-    '台座': '#8A8070', '遺跡': '#6F6253', '船': '#7A5A3A', '穴': '#141414', '移動不可': '#101716',
-    '訪問': '#A8763A', '到達': '#B8962E', '制圧': '#B8962E', '離脱': '#4A8A6A', '防衛': '#8A6A3A',
-    '土嚢': '#7A6A4A', '光の茂み': '#5A8A50', '光の守り': '#8AA0C0', '回復': '#5A8A50',
+    '平地': PAPER, '床': '#CDB98C', '石畳': '#BFAE88', '屋根': '#9A5B3A', '木': '#8E9A50',
+    '橋': '#B98A4E', '階段': '#B5A68A', '堀': '#4E7FAE', '城門': '#7A4A2A', '川': '#4E86B8',
+    '崖': '#8C7458', '壁': '#4A3826', '柵': '#8A6A42', '小物': '#B0A07A', '建物': '#A8603A',
+    '茂み': '#AAB065', '宝箱': '#E0B040', '廃墟': '#A8957A', '砦': '#B0643A', '城': '#9A5A36',
+    '玉座': '#E0B040', '海': '#3F6FA0', '海岸': '#C9C08A', '池': '#4E86B8', '水路': '#4E86B8',
+    '砂漠': '#E4CF92', '雪原': '#EEF0EE', '沼': '#8A9468', '山道': '#A89070', '岩': '#7E7468',
+    '扉': '#7A4A2A', '壊れる扉': '#8A5530', '柱': '#5A4A36', '噴水': '#6E9FC8', '花壇': '#A6B060',
+    '台座': '#B8AC90', '遺跡': '#A8957A', '船': '#9A6A3E', '穴': '#2A2018', '移動不可': '#3A3024',
+    '訪問': '#C07A3A', '到達': '#E0B040', '制圧': '#E0B040', '離脱': '#6AA08A', '防衛': '#C08A4A',
+    '土嚢': '#A89068', '光の茂み': '#B8C878', '光の守り': '#B0C4DC', '回復': '#9AC07A',
 }
+
+# Inked map symbols drawn over some terrain.
+TERRAIN_GLYPH = {
+    '木': 'tree', '茂み': 'tree', '光の茂み': 'tree',
+    '崖': 'peak', '岩': 'peak', '山道': 'peak',
+    '川': 'wave', '海': 'wave', '池': 'wave', '堀': 'wave', '水路': 'wave',
+}
+GLYPH_INK = {'tree': '#B8424E1E', 'peak': '#A84A3826', 'wave': '#B0E6F0FF'}
+
 
 # Simple original weapon glyphs on a 24x24 grid.
 ICONS = {
@@ -88,6 +108,8 @@ def tables():
         # Every name the companion shows comes from the disc's own message table.
         'msg': 'disc:Mess/common.m',
         'terrain_color': TERRAIN_COLOR,
+        'terrain_glyph': TERRAIN_GLYPH,
+        'glyph_ink': GLYPH_INK,
         'weapon_kind': {'0': 'sword', '1': 'lance', '2': 'axe', '3': 'bow', '4': 'tome', '5': 'tome',
                         '6': 'tome', '7': 'tome', '8': 'sword'},
         'icon': dict(ICONS),
@@ -126,17 +148,34 @@ def values():
     add({'name': 'sym_unique', 'expr': "find(syms, 'name', 'uniquepanel')"})
     add({'name': 'panel_addr', 'expr': 'map_data + syms[sym_panel].off'})
     add({'name': 'unique_addr', 'expr': 'map_data + syms[sym_unique].off'})
-    add({'name': 'chapter', 'expr': "default(table(msg, 'MCT' + substr(map_name, 4)), map_name)"})
+    # bmapNN are the chapters; Anna's tutorials run on T1, T2...
+    add({'name': 'chapter', 'expr': "substr(map_name, 0, 4) == 'bmap' ? default(table(msg, 'MCT' + substr(map_name, 4)), map_name) : substr(map_name, 0, 1) == 'T' ? 'Demonstration' : map_name"})
     add({'name': 'victory', 'expr': "default(table(msg, win_key), '')"})
     add({'name': 'cursor_cell', 'expr': 'cursor_y * map_w + cursor_x'})
+    # During events and the enemy phase the game parks the cursor at 0, 0, in the map's border.
+    add({'name': 'cursor_live', 'expr': 'map_ok && (cursor_x > 0 || cursor_y > 0)'})
     add({'name': 'terrain_jp', 'expr': "cells[cursor_cell].tname"})
     add({'name': 'terrain', 'expr': "default(table(msg, 'MT_' + terrain_jp), '')"})
     # Units: the one under the cursor, or the one picked by tapping.
-    add({'name': 'hover', 'expr': "default(find(units, 'x', cursor_x, 'y', cursor_y), -1)"})
+    add({'name': 'hover', 'expr': "cursor_live ? default(find(units, 'x', cursor_x, 'y', cursor_y), -1) : -1"})
     add({'name': 'focus', 'expr': 'sel >= 0 && sel < count(units) ? sel : hover'})
     add({'name': 'n_player', 'expr': "countif(units, 'army', 0)"})
     add({'name': 'n_enemy', 'expr': "countif(units, 'army', 1)"})
     add({'name': 'n_other', 'expr': "countif(units, 'army', 2)"})
+    # What the game is showing: 0 nothing to follow (title, menus, movies, story scenes),
+    # 1 a battle map, 2 a battle animation.
+    add({'name': 'n_units', 'expr': 'count(units)'})
+    # Set only while a battle scene runs (not on the map, at Game Over or back at the title, where
+    # the map size, units and combatants linger).
+    add({'name': 'battle_scene', 'type': 'u32', 'address': '0x802EFF1C'})
+    add({'name': 'scene', 'expr': 'map_w > 0 && map_w <= 64 && n_units > 0 ? (battle_scene > 0x80000000 && count(fighters) > 0 ? 2 : (map_ok ? 1 : 0)) : 0'})
+    # The forecast window has the player's side on the right (blue) and the foe's on the left (red).
+    add({'name': 'fr', 'expr': "count(fighters) > 1 && fighters[1].army == 0 && fighters[0].army != 0 ? 1 : 0"})
+    add({'name': 'fl', 'expr': 'count(fighters) > 1 ? 1 - fr : -1'})
+    # The copies already hold the HP after the fight; the units keep it from before until the
+    # animation ends, so show those and don't spoil the outcome.
+    for side in ('fl', 'fr'):
+        add({'name': f'hp_{side}', 'expr': f"default(units[default(find(units, 'pid', fighters[{side}].pid), -1)].hp, fighters[{side}].hp)"})
     return v
 
 
@@ -197,6 +236,17 @@ def arrays():
             '//where': 'Empty pool slots have no character record; the bounds reject stale data.',
             'where': 'pid != null && army != null && army <= 3 && lv >= 1 && lv <= 40 && hp <= 99',
             'fields': unit_fields(),
+        },
+        {
+            'name': 'fighters',
+            '//': 'The two units in the current (or last) fight, with the forecast numbers.',
+            'address': '0x80330EC0', 'stride': '0x2E0', 'count': 2,
+            'where': 'pid != null && army != null && army <= 3 && lv >= 1 && lv <= 40 && hp <= 99',
+            'fields': unit_fields() + [
+                {'name': f'b_{name}', 'type': 's16', 'offset': hex(off)}
+                for name, off in (('atk', 0x284), ('def', 0x286), ('as', 0x288), ('hit', 0x28A),
+                                  ('avo', 0x28C), ('crit', 0x290), ('ddg', 0x292))
+            ],
         },
         {
             'name': 'syms',
@@ -358,8 +408,10 @@ def item_icon(x, y, size, u, k, visible_if):
 
 
 def portrait(x, y, size, u, visible_if=None):
-    """The character's small portrait: Face/<FID>.cms image 13 (64x64)."""
-    return [disc_img(f"disc:Face/{{substr({u}.fid, 4)}}.cms#13", x, y, size, size,
+    """The character's small portrait: Face/<FID>.cms image 13 (64x64). Generic units (soldiers,
+    bandits) have a crest instead, whose texture has only two images: #1 is the 64x64 one."""
+    face = f"disc:Face/{{substr({u}.fid, 4)}}.cms"
+    return [disc_img(f"{face}#13", x, y, size, size, fallback=f"{face}#1",
                      visible_if=both(visible_if, f"$disc && {u}.fid != null"))]
 
 
@@ -535,20 +587,31 @@ def item_details(x, y, w, rows, row_h, u='units[focus]'):
 
 
 def minimap(x, y, w, h):
+    """The battle map as a parchment war map: inked terrain, unit tokens and the cursor."""
+    gx, gy, gw, gh = x + 18, y + 18, w - 36, h - 36
     return [
         navy(x, y, w, h, corner='diamond'),
-        {'type': 'rect', 'x': x + 14, 'y': y + 14, 'w': w - 28, 'h': h - 28, 'fill': '#0A1430', 'fill2': '#050A1C'},
-        {'type': 'grid', 'x': x + 18, 'y': y + 18, 'w': w - 36, 'h': h - 36,
+        {'type': 'rect', 'x': x + 14, 'y': y + 14, 'w': w - 28, 'h': h - 28, 'fill': '#3A2A14', 'fill2': '#1E1408'},
+        {'type': 'grid', 'x': gx, 'y': gy, 'w': gw, 'h': gh,
          'cols': 'map_w', 'rows': 'map_h', 'source': 'cells',
-         'cell': "{default(table(terrain_color, tname), '#30302C')}",
-         'grid_color': '#55000000', 'grid_width': 1,
+         'cell': f"{{default(table(terrain_color, tname), '#B8A57A')}}",
+         'bevel': 0.55, 'grid_color': '#405A4020', 'grid_width': 1,
          'visible_if': 'map_ok',
          'layers': [
-             {'source': 'units', 'x': 'x', 'y': 'y', 'shape': 'diamond', 'fill': '{color}', 'stroke': '#CCFFFFFF',
-              'size': 0.78, 'action': 'select_unit'},
+             {'source': 'cells', 'where': "default(table(terrain_glyph, tname), '') != ''",
+              'x': '$slot % map_w', 'y': 'floor($slot / map_w)',
+              'shape': '{table(terrain_glyph, tname)}', 'fill': '{table(glyph_ink, table(terrain_glyph, tname))}',
+              'stroke': "{table(terrain_glyph, tname) == 'wave' ? table(glyph_ink, 'wave') : ''}", 'size': 0.62},
              {'source': 'units', 'x': 'x', 'y': 'y', 'where': '$index == focus', 'shape': 'ring',
-              'stroke': '@gold_hi', 'size': 1.1},
-             {'x': 'cursor_x', 'y': 'cursor_y', 'shape': 'cursor', 'stroke': '#FFFFFF', 'size': 1.05},
+              'stroke': '#1A1206', 'size': 1.16},
+             {'source': 'units', 'x': 'x', 'y': 'y', 'where': '$index == focus', 'shape': 'ring',
+              'stroke': '@gold_hi', 'size': 1.04},
+             {'source': 'units', 'x': 'x', 'y': 'y', 'shape': 'token', 'fill': '{color}',
+              'size': 0.74, 'action': 'select_unit'},
+             {'x': 'cursor_x', 'y': 'cursor_y', 'where': 'cursor_live', 'shape': 'cursor',
+              'stroke': '#1A1206', 'size': 1.12},
+             {'x': 'cursor_x', 'y': 'cursor_y', 'where': 'cursor_live', 'shape': 'cursor',
+              'stroke': '@gold_hi', 'size': 1.0},
          ]},
         text(x, y + h / 2 - 30, w, 60, 'Waiting for a battle map…', 30, color='@gold', align='center',
              visible_if='!map_ok'),
@@ -631,9 +694,9 @@ def battle_page(W, H, top, bottom, compact):
     th = bottom - ty
     if th > 40:
         out.append(parchment(m, ty, map_w, th, corner='bracket', corner_size=10))
-        out.append(text(m + 20, ty, map_w * 0.6, th, "{terrain != '' ? terrain : '—'}", min(th * 0.5, 32), color='@ink'))
+        out.append(text(m + 20, ty, map_w * 0.6, th, "{cursor_live && terrain != '' ? terrain : '—'}", min(th * 0.5, 32), color='@ink'))
         out.append(text(m + map_w * 0.55, ty, map_w * 0.45 - 20, th, '{cursor_x}, {cursor_y}',
-                        min(th * 0.42, 26), color='@ink_soft', align='right'))
+                        min(th * 0.42, 26), color='@ink_soft', align='right', visible_if='cursor_live'))
 
     cx = m * 2 + map_w
     cw = W - cx - m
@@ -706,7 +769,7 @@ def status_page(W, H, top, bottom, compact):
         line = min(44, ph / 4.2)
         panel.append(text(m + 22, cy + 12, cw * 0.5, line, 'Class Maximums', line * 0.62, color='@ink'))
         panel.append(text(m + cw * 0.5, cy + 12, cw * 0.5 - 22, line,
-                          "{terrain != '' ? 'On ' + terrain : ''}", line * 0.56, color='@ink_soft', align='right'))
+                          "{cursor_live && terrain != '' ? 'On ' + terrain : ''}", line * 0.56, color='@ink_soft', align='right'))
         panel.append({'type': 'rect', 'x': m + 22, 'y': cy + 16 + line, 'w': cw - 44, 'h': 1.5, 'fill': '@parch_trim'})
         caps = [('HP', 'max_maxhp')] + [(STAT_LABELS[st], f'max_{st}') for st in STATS[1:]]
         cell_w = (cw - 44) / 4
@@ -731,6 +794,121 @@ def status_page(W, H, top, bottom, compact):
     return out
 
 
+# --------------------------------------------------------------------------------------------
+# Overlays for scenes without a battle map to follow.
+
+def idle_overlay(W, H, compact):
+    """Title, menus, movies and story scenes: the parchment map of Tellius and the title logo,
+    both from the disc."""
+    out = background(W, H)
+    map_w = W * (0.53 if compact else 0.62)
+    map_h = map_w * 448 / 608
+    mx, my = (W - map_w) / 2, H * (0.035 if compact else 0.06)
+    out.append({'type': 'rect', 'x': mx - 4, 'y': my + 10, 'w': map_w + 8, 'h': map_h + 8, 'radius': 10,
+                'fill': '#99000000'})
+    out.append(disc_img('disc:gmap/gmap_zentai.cms#0', mx, my, map_w, map_h, visible_if='$disc'))
+    out += gold_frame(mx - 10, my - 10, map_w + 20, map_h + 20, corner=40)
+    # The logo is drawn on black; the game adds it onto the screen, so blend it the same way.
+    logo_w = min(W * (0.5 if compact else 0.52), (H - (my + map_h) - 10) * 512 / 320)
+    logo_h = logo_w * 320 / 512
+    ly = my + map_h + (H - my - map_h - logo_h) / 2
+    out.append(disc_img('disc:title.cmp>s/qig#1', (W - logo_w) / 2, ly, logo_w, logo_h, blend='screen',
+                        visible_if='$disc'))
+    out.append(text(0, H * 0.42, W, 80, 'Path of Radiance', 64, font='title', color='@gold_hi', align='center',
+                    shadow='@shadow', visible_if='!$disc'))
+    return [{'type': 'group', 'visible_if': 'scene == 0', 'elements': out}]
+
+
+# Row centres of the forecast window's labels, and its name/weapon slots (source pixels).
+FORECAST = [('hp', 89), ('atk', 119), ('def', 149), ('hit', 179), ('crit', 209), ('as', 238)]
+FORECAST_SLOTS = [('fr', 'name', 23), ('fr', 'item0', 54), ('fl', 'item0', 282), ('fl', 'name', 304)]
+
+
+def forecast_value(stat, me, foe):
+    a, b = f'fighters[{me}]', f'fighters[{foe}]'
+    return {
+        'hp': f'{{hp_{me}}}',
+        'atk': f'{{{a}.b_atk}}',
+        'def': f'{{{a}.b_def}}',
+        'hit': f'{{max(0, min(100, {a}.b_hit - {b}.b_avo))}}',
+        'crit': f'{{max(0, min(100, {a}.b_crit - {b}.b_ddg))}}',
+        'as': f'{{{a}.b_as}}',
+    }[stat]
+
+
+def fighter_column(x, y, w, h, side, compact):
+    """One combatant: name, portrait, class and level, HP and weapon."""
+    u = f'fighters[{side}]'
+    out = []
+    plate_h = 56 if compact else 70
+    for army, color in ((0, 'navy'), (1, 'maroon')):
+        out += game_plate(x, y, w, plate_h, color, visible_if=f'{u}.army == {army}')
+    out += game_plate(x, y, w, plate_h, 'green', visible_if=f'{u}.army != 0 && {u}.army != 1')
+    out.append(text(x, y, w, plate_h, f'{{{u}.name}}', plate_h * 0.5, color='@cream', align='center',
+                    shadow='#B0000000'))
+    py = y + plate_h + (10 if compact else 14)
+    side_len = min(w - 40, h * (0.36 if compact else 0.4))
+    px = x + (w - side_len) / 2
+    out += textured_navy(px - 10, py, side_len + 20, side_len + 20)
+    out += portrait(px, py + 10, side_len, u)
+    cy = py + side_len + 20 + (10 if compact else 14)
+    card_h = 50 if compact else 62
+    out.append(parchment(x, cy, w, card_h, corner='bracket', corner_size=10))
+    out.append(text(x + 18, cy, w * 0.62, card_h, f'{{{u}.cls}}', card_h * 0.48, color='@ink'))
+    out.append(text(x + w * 0.6, cy, w * 0.4 - 18, card_h, f'Lv {{{u}.lv}}', card_h * 0.44, color='@ink',
+                    align='right'))
+    hy = cy + card_h + (10 if compact else 14)
+    hp_h = 74 if compact else 96
+    out += textured_navy(x, hy, w, hp_h)
+    out.append(text(x + 22, hy + 8, 80, hp_h * 0.55, 'HP', hp_h * 0.3, color='@label'))
+    out.append(text(x + 80, hy + 4, w - 102, hp_h * 0.6, f'{{hp_{side}}} / {{{u}.maxhp}}', hp_h * 0.42,
+                    align='right', shadow='#B0000000'))
+    out.append({'type': 'bar', 'x': x + 22, 'y': hy + hp_h * 0.68, 'w': w - 44, 'h': hp_h * 0.16,
+                'radius': 3, 'value': f'hp_{side}', 'max': f'{u}.maxhp', 'track': '@track',
+                'fill': '@hp', 'fill2': '@hp2', 'count': f'{u}.maxhp', 'off': '#55000000'})
+    wy = hy + hp_h + (10 if compact else 14)
+    wh = min(60, y + h - wy)
+    if wh > 30:
+        out.append({'type': 'rect', 'x': x + 6, 'y': wy, 'w': w - 12, 'h': wh, 'radius': 8, 'fill': '#40000000'})
+        out += item_icon(x + 16, wy + (wh - 36) / 2, 36, u, 0, f"{u}.item0 != ''")
+        out.append(text(x + 62, wy, w - 80, wh, f'{{{u}.item0}}', wh * 0.46, visible_if=f"{u}.item0 != ''"))
+    return [{'type': 'group', 'visible_if': f'count(fighters) > {side}', 'elements': out}]
+
+
+def combat_overlay(W, top, bottom, compact):
+    """A battle animation: the two combatants either side of the game's forecast window
+    (window/btl_mae.tpl), with the numbers the game computed for the fight."""
+    m = 12 if compact else 16
+    h = bottom - top
+    win_h = h - 8
+    win_w = win_h * 168 / 328
+    col_w = (W - m * 4 - win_w) / 2
+    wx = m * 2 + col_w
+    scale = win_w / 168
+    out = [{'type': 'rect', 'x': 0, 'y': top - m / 2, 'w': W, 'h': h + m, 'fill': '@backdrop2'}]
+    out += fighter_column(m, top, col_w, h, 'fl', compact)
+    out += fighter_column(W - m - col_w, top, col_w, h, 'fr', compact)
+    out.append(navy(wx, top + 4, win_w, win_h, visible_if='!$disc'))
+    out.append(disc_img('disc:window/btl_mae.tpl#0', wx, top + 4, win_w, win_h, visible_if='$disc'))
+    labels = {'hp': 'HP', 'atk': 'Atk', 'def': 'Def', 'hit': 'Hit', 'crit': 'Crit', 'as': 'AS'}
+    size = 13 * scale
+    for stat, sy in FORECAST:
+        ry = top + 4 + (sy - 13) * scale
+        rh = 26 * scale
+        out.append(text(wx + 58 * scale, ry, 52 * scale, rh, labels[stat], size * 0.8, color='@ink',
+                        align='center', visible_if='!$disc'))
+        out.append(text(wx + 2 * scale, ry, 54 * scale, rh, forecast_value(stat, 'fl', 'fr'), size, align='center',
+                        shadow='#C0000000', visible_if='count(fighters) > 1'))
+        out.append(text(wx + 112 * scale, ry, 54 * scale, rh, forecast_value(stat, 'fr', 'fl'), size,
+                        align='center', shadow='#C0000000', visible_if='count(fighters) > 1'))
+    # Top slots: the right-hand (player's) side; bottom slots: the left-hand side.
+    for side, field, sy in FORECAST_SLOTS:
+        out.append(text(wx + 22 * scale, top + 4 + (sy - 9) * scale, 124 * scale, 18 * scale,
+                        f'{{fighters[{side}].{field}}}', 10 * scale, align='center', shadow='#C0000000',
+                        visible_if=f'count(fighters) > 1'))
+    return [{'type': 'group', 'visible_if': 'scene == 2', 'elements': out}]
+
+
 def layout(lid, W, H, compact):
     elements, top, bottom = chrome(W, H, compact)
     pages = {
@@ -738,6 +916,9 @@ def layout(lid, W, H, compact):
         'army': army_page(W, H, top, bottom, compact),
         'status': status_page(W, H, top, bottom, compact),
     }
+    # Every page gives way to the same views when there is no battle map to follow.
+    for page in pages.values():
+        page += combat_overlay(W, top, bottom, compact) + idle_overlay(W, H, compact)
     return {'id': lid, 'canvas': [W, H], 'background': '@backdrop2', 'elements': elements}, pages
 
 
