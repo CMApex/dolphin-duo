@@ -1,5 +1,14 @@
 # Dolphin Duo roadmap
 
+## Done (second pass)
+
+- Canvas pages: per-screen-shape `layouts`, a `theme` (colours, package fonts, styles), positioned
+  elements (frame, text, bar, pips, image, SVG path, tile-map grid, repeat, group), UI `state` with
+  `set` steps, `address_expr`, `find()`/`countif()`.
+- Android canvas renderer, plus a desktop twin (`Tools/DolphinDuo/preview`) for previews from dumps.
+- Headless authoring harness in `dolphin-emu-nogui` (`Tools/DolphinDuo/headless`): scripted input,
+  MEM1 dumps, screenshots and save states, for mapping a game without anyone at the controls.
+
 ## Done (first pass)
 
 - Runtime on the emulation thread: game ID + revision lock, values, pointer chains, bitfields,
@@ -27,8 +36,10 @@ These could not be checked in the environment the first pass was written in:
 
 ## Next
 
-- [ ] **First real companion.** Map a game end to end (Radiant Dawn or Path of Radiance are natural
-      fits: unit list, stats, terrain, battle forecast).
+- [x] **First real companion**: Fire Emblem: Path of Radiance (`Companions/fe9-path-of-radiance`),
+      with canvas layouts for the Thor and 4:3 screens.
+- [ ] Path of Radiance: battle forecast, skills, weapon ranks, units that have acted.
+- [ ] Radiant Dawn (RFEE01 rev 1) on the same framework.
 - [ ] **Swap screens**: run the game on the bottom panel and the companion on top.
 - [ ] **Disc assets**: let companions read files from the running disc (`disc:` paths) for map
       backgrounds and icons, like Eden Duo builds art from the game's own files. Needs Yaz0, RARC/U8,

@@ -29,12 +29,21 @@ Settings (Interface → Dolphin Duo):
 * **Allow Companions to Change Game Memory**: lets companion actions write memory. Always off in
   RetroAchievements hardcore mode.
 
+## Companions in this repository
+
+* [Fire Emblem: Path of Radiance](../../Companions/fe9-path-of-radiance/README.md): tactical
+  minimap, unit status and army roster, in the game's own style, for the Thor and 4:3 screens.
+
 ## Writing a companion
 
-1. Find addresses: Dolphin's memory view and cheat search on desktop, or Dolphin Memory Engine.
+1. Find addresses: Dolphin's memory view and cheat search on desktop, Dolphin Memory Engine, or the
+   [headless harness](../../Tools/DolphinDuo/headless), which plays the game from a script and
+   dumps memory and screenshots along the way.
 2. Watch them live on the device by listing them in `Duo/Watches/<GAMEID>.txt`.
 3. Start from [`examples/template`](examples/template/manifest.json) and read
-   [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md).
+   [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md). For a companion that looks like its game, use
+   [canvas pages](PACKAGE_FORMAT.md#canvas-pages) and preview them on desktop with
+   `Tools/DolphinDuo/preview`.
 4. Check it on desktop:
 
    ```sh

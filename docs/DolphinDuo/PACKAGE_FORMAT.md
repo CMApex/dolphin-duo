@@ -43,6 +43,9 @@ preview prints a text version of each page using the values in the dump.
 | `arrays` | no | Repeated structures (party, inventory, units…). |
 | `pages` | yes | At least one page of widgets. |
 | `actions` | no | Things buttons, list rows and map points can trigger. |
+| `layouts` | no | Design canvases per screen shape, for [canvas pages](#canvas-pages). |
+| `theme` | no | Named colours, fonts and element styles for canvas pages. |
+| `state` | no | UI state such as the selected unit, changed by `set` steps. |
 
 Keys starting with `//` or `_` are comments and ignored anywhere. **Any other unknown key is an
 error**, which catches typos like `"adress"`.
@@ -72,6 +75,7 @@ in its game properties.
 | `length` | Strings: bytes to read (1–256). Text stops at the first NUL. |
 | `encoding` | Strings: `ascii` (default, also correct for UTF-8), `sjis`, `utf16`. |
 | `expr` | A computed value instead of a memory read (no `type`/`address`). |
+| `address_expr` | An address computed from earlier values, instead of `address`. `offsets` still apply. |
 
 Values are read big-endian, as the console stores them. A read that fails (unmapped address, null
 pointer) produces an *unavailable* value, shown as `?`.
@@ -85,6 +89,21 @@ Every intermediate pointer must point into RAM or the value is unavailable.
 ```json
 { "name": "leader_hp", "type": "u16", "address": "0x80123460", "offsets": ["0x10", "0x4"] }
 ```
+
+### Computed addresses
+
+Some data is only reachable through a table the game builds at run time: a map file whose symbol
+table says where the terrain grid starts, an index into a list of records. `address_expr` computes
+the address from values declared earlier (in arrays: from earlier fields of the same element, or
+from values), and `offsets` then work as usual:
+
+```json
+{ "name": "map_data", "type": "u32", "address": "0x802EFE6C" },
+{ "name": "map_symbols", "type": "u32", "address_expr": "map_data - 0x1C" }
+```
+
+Arrays accept `address_expr` in place of `address` too. A computed address that is null or 0 makes
+the value unavailable (an array becomes empty).
 
 ### Computed values
 
@@ -145,7 +164,10 @@ inside `{…}` in text.
 * Operators, low to high: `?:`, `||`, `&&`, `|`, `^`, `&`, `== !=`, `< <= > >=`, `<< >>`, `+ -`,
   `* / %`, unary `! - ~`
 * Functions: `min(…)`, `max(…)`, `abs`, `floor`, `ceil`, `round`, `clamp(x, lo, hi)`, `bit(x, n)`,
-  `bits(x, shift, width)`, `count(array)`, `table(name, key)`, `default(x, fallback)`, `str(x)`
+  `bits(x, shift, width)`, `count(array)`, `table(name, key)`, `default(x, fallback)`, `str(x)`,
+  `find(array, 'field', value[, 'field2', value2])` (index of the first matching element, or
+  null) and `countif(array, 'field', value[, 'field2', value2])`
+* State and layout: names from `state` (see below), and `$layout`, the canvas layout being drawn
 
 Arithmetic with an unavailable value is unavailable, so a failed read shows as `?` instead of a
 misleading `0`. `default(x, y)` substitutes a fallback. `==`/`!=` work with `null`, so
@@ -229,6 +251,7 @@ companion's own folder only.
 | `{"write": "gold", "value": "gold + 100"}` | Write a value. Needs `write_memory`. |
 | `{"write": "party[].hp", "value": "max_hp", "index": "$index"}` | Write an array field; `index` defaults to the tapped row. |
 | `{"page": "map"}` | Switch pages. |
+| `{"set": "sel", "value": "$index"}` | Set a `state` entry. Touches no game memory, so it needs no capability. |
 
 When an action comes from a list row or map point, its expressions see that element's fields.
 Writes clamp to the field's range (writing 300 to a `u8` stores 255) and keep the other bits of a
@@ -244,6 +267,97 @@ C_STICK_X C_STICK_Y`. Wii Remote: `WII_A WII_B WII_1 WII_2 WII_PLUS WII_MINUS WI
 WII_DOWN WII_LEFT WII_RIGHT WII_IR_X WII_IR_Y`. Nunchuk: `NUNCHUK_C NUNCHUK_Z NUNCHUK_STICK_X
 NUNCHUK_STICK_Y`. Classic Controller: `CLASSIC_A`… (`_B _X _Y _ZL _ZR _PLUS _MINUS _HOME _UP _DOWN
 _LEFT _RIGHT _L _R _L_ANALOG _R_ANALOG _LEFT_STICK_X _LEFT_STICK_Y _RIGHT_STICK_X _RIGHT_STICK_Y`).
+
+
+---
+
+## Canvas pages
+
+Widgets stack top to bottom in Dolphin Duo's own style. A **canvas page** instead places every
+element at an exact position on a fixed design canvas, in the game's own visual language: its
+colours, fonts, window frames and map cursor. This is how Eden Duo's companions look like part of
+their game, and what makes room for different layouts per screen shape.
+
+```json
+"layouts": [
+  { "id": "thor",    "canvas": [1240, 1080], "background": "@backdrop", "elements": [ … ] },
+  { "id": "classic", "canvas": [1024, 768] }
+],
+"pages": [
+  { "id": "battle", "title": "Battle", "elements": { "thor": [ … ], "classic": [ … ] } }
+]
+```
+
+* The runtime picks the layout whose canvas shape is closest to the companion screen (the AYN
+  Thor's bottom screen is 1240x1080; 4:3 handhelds get `classic` above). The canvas is scaled to
+  fit and centred, and `background` fills any margin.
+* A layout's own `elements` are drawn under every page: backdrop, title bar, page tabs.
+* A page's `elements` is either one list for every layout or an object keyed by layout id, with
+  `"*"` for any layout not listed. A page can keep `widgets` for screens without a canvas.
+* Tabs are just elements whose `action` runs a `page` step; `$page` tells which page is showing.
+
+### Elements
+
+Every element has `type`, optional `visible_if`, and optional `action` (tapping it runs the action;
+inside a `repeat`, the action sees that element, like a list row). Numbers (`x`, `y`, `w`, `h`,
+`size`, `value`, …) are expressions; text properties (`text`, colours, `font`, `align`, `d`, …) are
+templates, so both can follow the game.
+
+| Type | Properties |
+|---|---|
+| `rect` | `x y w h`, `fill`, `fill2` (vertical gradient), `stroke`, `stroke_width`, `radius` |
+| `frame` | A window: `fill`/`fill2` body, `edge` outline, `trim` inner line `inset` px inside, `trim_width`, `glow` (top sheen), `corner`: `notch` (clipped corners with lozenges), `diamond`, `bracket` or `none`, `corner_size`, `radius` |
+| `text` | `x y w h`, `text`, `font`, `size`, `weight` (`bold`), `color`, `fill2` (gradient), `align` (`left` `center` `right`), `valign` (`top` `middle` `bottom`), `fit` (1: shrink to the width, then ellipsize), `min_size`, `shadow` + `shadow_dx`/`shadow_dy`, `outline` + `outline_width`, `letter_spacing` (em), `case` (`upper`) |
+| `bar` | `x y w h`, `value`, `max`, `fill`/`fill2` (horizontal gradient), `track`/`track2`, `stroke`, `radius`, `count` (segment ticks) with `off` and `gap` |
+| `pips` | `x y w h`, `count`, `filled`, `fill`, `off`, `shape` (`diamond` `circle` `square`), `gap` |
+| `image` | `x y w h`, `src` (a file in the companion folder), `tint` |
+| `path` | `x y w h`, `d` (SVG path data), `viewbox` `[x, y, w, h]`, `fill`, `stroke`, `stroke_width`: icons and ornaments without image files |
+| `grid` | A tile map: `x y w h`, `cols`, `rows`, optional `view_cols`/`view_rows` with `center_x`/`center_y` to show a window that follows something, `source` + `cell` (colour per cell, from an array in row-major `$slot` order), `grid_color`, `grid_width`, `layers` of marks |
+| `group` | `x`, `y`, `elements`: children placed relative to it |
+| `repeat` | `source` array, `x`, `y`, `dx`, `dy`, `columns`, `limit`, `start`, `where`, `elements`: children once per (matching) element, which see its fields |
+
+`opacity` (0–1) works on everything. Grid `layers` take `source`, `x`, `y` (in cells), `where`,
+`fill`, `stroke`, `shape` (`dot` `square` `diamond` `ring` `cursor`), `size` (fraction of a cell),
+`label` and `action`.
+
+### Theme
+
+```json
+"theme": {
+  "colors": { "gold": "#D9B65A", "navy": "#13246E", "veil": "#80000000" },
+  "fonts":  { "ui": "fonts/Marcellus-Regular.ttf", "title": "fonts/Cinzel.ttf" },
+  "styles": { "window": { "fill": "@navy", "edge": "#1A1206", "trim": "@gold", "corner": "notch" } }
+}
+```
+
+* Colours are `#RGB`, `#RRGGBB` or `#AARRGGBB`: **alpha comes first**, as on Android. Anywhere a
+  colour goes, `@name` uses a theme colour.
+* `fonts` are files in the companion folder; text picks one with `"font": "ui"`. `serif`, `sans` and
+  `mono` are always available. Ship only fonts whose licence allows it (the OFL fonts on Google
+  Fonts are a good source) and include the licence.
+* `styles` are presets an element names with `"style": "window"`; its own keys win.
+
+### State
+
+```json
+"state": { "sel": -1 },
+"actions": [ { "id": "pick", "steps": [ { "set": "sel", "value": "$index" } ] } ]
+```
+
+`state` entries are plain names in expressions. They start at their initial value whenever the
+companion loads and change only through `set` steps, so they suit UI choices: the unit whose card is
+showing, a sort order, a page of a long list.
+
+### Previewing canvas pages on desktop
+
+```sh
+dolphin-tool duo preview my-companion --mem1 mem1.raw --screen 1240x1080 --page battle --json > snap.json
+node Tools/DolphinDuo/preview/render.mjs snap.json battle.png
+```
+
+`--screen` picks the layout as the device would (or name one with `--layout`), and `--state
+sel=3` sets state. The renderer (headless Chromium through Playwright) draws exactly what the
+Android companion screen draws.
 
 ---
 
