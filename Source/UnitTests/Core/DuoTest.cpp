@@ -781,3 +781,117 @@ TEST(DuoCanvas, ReportsCanvasErrors)
   EXPECT_TRUE(has("names a layout that is not in \"layouts\""));
   EXPECT_TRUE(has("sets unknown state \"unknown\""));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Disc assets: references, LZ10, pack archives and TPL decoding.
+
+#include "Core/Duo/DiscAssets.h"
+
+TEST(DuoDiscAssets, ParsesReferences)
+{
+  const std::optional<Duo::DiscImageRef> plain = Duo::ParseDiscImageRef("disc:window/level.tpl#3");
+  ASSERT_TRUE(plain.has_value());
+  EXPECT_EQ(plain->file, "window/level.tpl");
+  EXPECT_EQ(plain->index, 3u);
+  EXPECT_TRUE(plain->member.empty());
+
+  const std::optional<Duo::DiscImageRef> member =
+      Duo::ParseDiscImageRef("disc:zmap/bmap01/map.cmp>texpack.tpl");
+  ASSERT_TRUE(member.has_value());
+  EXPECT_EQ(member->file, "zmap/bmap01/map.cmp");
+  EXPECT_EQ(member->member, "texpack.tpl");
+  EXPECT_EQ(member->index, 0u);
+
+  EXPECT_FALSE(Duo::ParseDiscImageRef("images/a.png").has_value());
+  EXPECT_FALSE(Duo::ParseDiscImageRef("disc:../secret.tpl").has_value());
+  EXPECT_FALSE(Duo::ParseDiscImageRef("disc:/abs.tpl").has_value());
+  EXPECT_FALSE(Duo::ParseDiscImageRef("disc:a.tpl#x").has_value());
+}
+
+TEST(DuoDiscAssets, DecompressesLZ10)
+{
+  // "ABCABCABCX": literals A B C, a back-reference of 6 bytes 3 back, then literal X.
+  const std::vector<u8> compressed = {0x10, 10, 0, 0, 0x10, 'A', 'B', 'C', 0x30, 0x02, 'X'};
+  const std::optional<std::vector<u8>> out = Duo::DecompressLZ10(compressed);
+  ASSERT_TRUE(out.has_value());
+  EXPECT_EQ(std::string(out->begin(), out->end()), "ABCABCABCX");
+
+  // A reference before the start of the output is rejected, not read out of bounds.
+  EXPECT_FALSE(Duo::DecompressLZ10(std::vector<u8>{0x10, 4, 0, 0, 0x80, 0x10, 0x05}).has_value());
+  // Uncompressed data passes through MaybeDecompress unchanged.
+  EXPECT_EQ(Duo::MaybeDecompress({1, 2, 3}), (std::vector<u8>{1, 2, 3}));
+}
+
+TEST(DuoDiscAssets, ExtractsPackMembers)
+{
+  std::vector<u8> pack(0x40, 0);
+  const auto put32 = [&](size_t at, u32 v) {
+    for (int i = 0; i < 4; ++i)
+      pack[at + i] = static_cast<u8>(v >> (24 - 8 * i));
+  };
+  std::copy_n("pack", 4, pack.begin());
+  pack[5] = 1;           // One member.
+  put32(8 + 4, 0x30);    // Name offset.
+  put32(8 + 8, 0x38);    // Data offset.
+  put32(8 + 12, 3);      // Size.
+  std::copy_n("a.tpl", 6, pack.begin() + 0x30);
+  pack[0x38] = 7;
+  pack[0x39] = 8;
+  pack[0x3A] = 9;
+  EXPECT_EQ(Duo::ExtractPackMember(pack, "a.tpl"), (std::vector<u8>{7, 8, 9}));
+  EXPECT_FALSE(Duo::ExtractPackMember(pack, "b.tpl").has_value());
+}
+
+TEST(DuoDiscAssets, DecodesTPL)
+{
+  // One 4x4 RGB5A3 image: opaque pure red everywhere except a half-transparent black texel.
+  std::vector<u8> tpl(0x60, 0);
+  const auto put32 = [&](size_t at, u32 v) {
+    for (int i = 0; i < 4; ++i)
+      tpl[at + i] = static_cast<u8>(v >> (24 - 8 * i));
+  };
+  const auto put16 = [&](size_t at, u16 v) {
+    tpl[at] = static_cast<u8>(v >> 8);
+    tpl[at + 1] = static_cast<u8>(v);
+  };
+  put32(0, 0x0020AF30);
+  put32(4, 1);
+  put32(8, 0x0C);
+  put32(0x0C, 0x14);  // Image header.
+  put32(0x10, 0);     // No palette.
+  put16(0x14, 4);     // Height.
+  put16(0x16, 4);     // Width.
+  put32(0x18, 5);     // RGB5A3.
+  put32(0x1C, 0x40);  // Data.
+  tpl.resize(0x40 + 32);
+  for (int i = 0; i < 16; ++i)
+    put16(0x40 + i * 2, 0xFC00);  // 1 11111 00000 00000: opaque red.
+  put16(0x40 + 5 * 2, 0x4000);    // 0 100 0000 0000 0000: alpha 4/7, black.
+
+  std::string error;
+  const std::optional<Duo::DecodedImage> image = Duo::DecodeTPL(tpl, 0, &error);
+  ASSERT_TRUE(image.has_value()) << error;
+  EXPECT_EQ(image->width, 4u);
+  EXPECT_EQ(image->height, 4u);
+  EXPECT_EQ(image->rgba[0], 255);  // R of texel 0
+  EXPECT_EQ(image->rgba[1], 0);
+  EXPECT_EQ(image->rgba[3], 255);  // A
+  EXPECT_EQ(image->rgba[5 * 4 + 0], 0);
+  EXPECT_GT(image->rgba[5 * 4 + 3], 100);
+  EXPECT_LT(image->rgba[5 * 4 + 3], 200);
+
+  EXPECT_FALSE(Duo::DecodeTPL(tpl, 1, &error).has_value());
+  tpl[1] = 0;  // Break the magic number.
+  EXPECT_FALSE(Duo::DecodeTPL(tpl, 0, &error).has_value());
+}
+
+TEST(DuoExpression, Substr)
+{
+  MapScope scope;
+  scope.values["fid"] = Duo::Value("FID_IKE");
+  EXPECT_EQ(Eval("substr(fid, 4)", scope), Duo::Value("IKE"));
+  EXPECT_EQ(Eval("substr(fid, 0, 3)", scope), Duo::Value("FID"));
+  EXPECT_EQ(Eval("substr(fid, -3)", scope), Duo::Value("IKE"));
+  EXPECT_EQ(Eval("substr(fid, 40)", scope), Duo::Value(""));
+  EXPECT_TRUE(Eval("substr(nothing, 1)", scope).IsNull());
+}

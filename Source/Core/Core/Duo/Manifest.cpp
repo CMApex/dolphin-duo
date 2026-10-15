@@ -845,6 +845,7 @@ constexpr std::string_view ELEMENT_NUMBERS[] = {
     "rows",      "view_cols",  "view_rows",  "center_x", "center_y",     "line_height",
     "trim_width", "inset",     "corner_size", "gap",     "outline_width", "shadow_dx",
     "shadow_dy", "min_size",   "fit",        "rotate",   "letter_spacing", "grid_width",
+    "slice_scale", "flip_x",
 };
 
 // Text element properties, parsed as templates.
@@ -855,9 +856,9 @@ constexpr std::string_view ELEMENT_TEXTS[] = {
     "fill_angle", "case",
 };
 
-constexpr std::string_view ELEMENT_STRUCTURE[] = {"type",   "visible_if", "action",
-                                                  "source", "elements",   "layers",
-                                                  "viewbox", "style",     "where"};
+constexpr std::string_view ELEMENT_STRUCTURE[] = {"type",    "visible_if", "action", "source",
+                                                  "elements", "layers",    "viewbox", "style",
+                                                  "where",   "crop",       "slice"};
 
 bool IsElementNumber(std::string_view key)
 {
@@ -982,6 +983,29 @@ std::optional<ElementSpec> ParseElement(Reader& r, const picojson::value& json,
     }
     if (!valid)
       r.Error(element_path, "\"viewbox\" must be [min_x, min_y, width, height]");
+  }
+
+  for (const char* key : {"crop", "slice"})
+  {
+    const picojson::value* list = r.Get(object, key);
+    if (!list)
+      continue;
+    if (!list->is<picojson::array>() || list->get<picojson::array>().size() != 4)
+    {
+      r.Error(element_path, fmt::format("\"{}\" must be a list of four numbers or expressions", key));
+      continue;
+    }
+    std::vector<Expression> expressions;
+    for (const picojson::value& entry : list->get<picojson::array>())
+    {
+      if (std::optional<Expression> expression =
+              r.Expr(entry, element_path, fmt::format("\"{}\" entry", key)))
+      {
+        expressions.push_back(std::move(*expression));
+      }
+    }
+    if (expressions.size() == 4)
+      element.lists.emplace(key, std::move(expressions));
   }
 
   if (const picojson::value* children = r.Get(object, "elements"))

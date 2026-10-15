@@ -214,6 +214,9 @@ struct ElementSpec
   std::map<std::string, Template, std::less<>> props;
   // Numeric arrays: path "viewbox".
   std::vector<double> viewbox;
+  // Image "crop" [x, y, w, h] and nine-slice "slice" [left, top, right, bottom], in source
+  // pixels; each entry is an expression (an icon's cell in an atlas can follow the item).
+  std::map<std::string, std::vector<Expression>, std::less<>> lists;
 
   std::string action;
   std::string source;               // Repeat and grid cells: the array to iterate.

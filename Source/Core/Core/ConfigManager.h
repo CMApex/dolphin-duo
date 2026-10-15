@@ -59,6 +59,9 @@ struct SConfig
 
   // TODO: remove this as soon as the ticket view hack in IOS/ES/Views is dropped.
   bool m_disc_booted_from_game_list = false;
+  // The disc image the running game booted from, empty for executables. Dolphin Duo reads
+  // companion art (window frames, icons) from it.
+  std::string m_disc_path;
 
   const std::string GetGameID() const;
   const std::string GetGameTDBID() const;

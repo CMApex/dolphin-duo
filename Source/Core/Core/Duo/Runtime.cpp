@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "Core/Duo/Runtime.h"
+#include "Core/Duo/DiscAssets.h"
 
 #include <tuple>
 
@@ -606,6 +607,7 @@ void Runtime::OnFrameEnd(const Core::CPUThreadGuard& guard)
   info.is_wii = system.IsWii();
   info.frame = m_frame;
   info.time_seconds = static_cast<double>(m_frame) / fields_per_second;
+  info.has_disc = !SConfig::GetInstance().m_disc_path.empty();
   m_loaded->evaluator->Sample(memory, info);
   Publish();
 }
@@ -692,6 +694,21 @@ void Runtime::Shutdown()
   m_pending = Pending{};
   m_snapshot.clear();
   ++m_sequence;
+}
+
+std::optional<std::string> Runtime::ResolveDiscImage(std::string_view source, std::string* error)
+{
+  const SConfig& config = SConfig::GetInstance();
+  const std::string game_id = config.GetGameID();
+  if (game_id.empty() || !IsSafeName(game_id))
+  {
+    if (error)
+      *error = "no game is running";
+    return std::nullopt;
+  }
+  return MaterializeDiscImage(config.m_disc_path,
+                              GetRootDirectory() + "Cache" DIR_SEP + game_id + DIR_SEP, source,
+                              error);
 }
 
 std::optional<std::pair<u64, std::string>> Runtime::GetSnapshot(u64 after) const

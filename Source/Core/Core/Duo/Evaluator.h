@@ -44,6 +44,7 @@ struct SystemInfo
   bool is_wii = false;
   u64 frame = 0;
   double time_seconds = 0.0;
+  bool has_disc = false;  // "disc:" images can be loaded ($disc).
 };
 
 // Converts game text in a non-trivial encoding to UTF-8. Ascii/UTF-8 and UTF-16BE are handled

@@ -375,6 +375,7 @@ struct SetGameMetadata
     system.SetIsWii(disc.volume->GetVolumeType() == DiscIO::Platform::WiiDisc);
     system.SetIsTriforce(disc.volume->GetVolumeType() == DiscIO::Platform::Triforce);
     config->m_disc_booted_from_game_list = true;
+    config->m_disc_path = disc.path;
     config->SetRunningGameMetadata(*disc.volume, disc.volume->GetGamePartition());
     return true;
   }
@@ -483,6 +484,7 @@ bool SConfig::SetPathsAndGameMetadata(Core::System& system, const BootParameters
 {
   system.SetIsMIOS(false);
   m_disc_booted_from_game_list = false;
+  m_disc_path.clear();
   if (!std::visit(SetGameMetadata(this, system, &m_region), boot.parameters))
     return false;
 

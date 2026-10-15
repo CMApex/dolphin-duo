@@ -79,6 +79,10 @@ public:
 
   static std::vector<InstalledCompanion> ScanCompanions();
 
+  // Returns a PNG file for a "disc:" image of the running game, decoding it into
+  // <User>/Duo/Cache/<game id>/ on first use. Any thread.
+  static std::optional<std::string> ResolveDiscImage(std::string_view source, std::string* error);
+
 private:
   Runtime();
 

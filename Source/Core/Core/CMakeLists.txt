@@ -80,6 +80,8 @@ add_library(core
   DolphinAnalytics.h
   Duo/ActionRunner.cpp
   Duo/ActionRunner.h
+  Duo/DiscAssets.cpp
+  Duo/DiscAssets.h
   Duo/Evaluator.cpp
   Duo/Evaluator.h
   Duo/Expression.cpp

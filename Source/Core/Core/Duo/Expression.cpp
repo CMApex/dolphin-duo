@@ -254,7 +254,7 @@ NodePtr MakeConstant(Value value)
 constexpr std::string_view KNOWN_FUNCTIONS[] = {"min",   "max",     "abs", "floor", "ceil",
                                                 "round", "clamp",   "bit", "bits",  "count",
                                                 "table", "default", "str",   "find",
-                                                "countif"};
+                                                "countif", "substr"};
 
 class Parser
 {
@@ -481,6 +481,11 @@ private:
     {
       min_args = max_args = 2;
     }
+    else if (f == "substr")
+    {
+      min_args = 2;
+      max_args = 3;
+    }
     else if (f == "find" || f == "countif")
     {
       // find(array, 'field', value[, 'field2', value2]); countif() takes the same arguments.
@@ -676,6 +681,26 @@ Value EvaluateCall(const Expression::Node& node, const Scope& scope)
       }
     }
     return f == "countif" ? Value(matches) : Value::Null();
+  }
+  if (f == "substr")
+  {
+    // substr(text, start[, length]) in bytes; a negative start counts from the end.
+    const Value text = Evaluate(*args[0], scope);
+    const std::optional<s64> start = Evaluate(*args[1], scope).AsInteger();
+    if (!text.IsString() || !start)
+      return Value::Null();
+    const std::string& s = text.String();
+    const s64 size = static_cast<s64>(s.size());
+    const s64 from = std::clamp<s64>(*start < 0 ? size + *start : *start, 0, size);
+    s64 length = size - from;
+    if (args.size() == 3)
+    {
+      const std::optional<s64> requested = Evaluate(*args[2], scope).AsInteger();
+      if (!requested)
+        return Value::Null();
+      length = std::clamp<s64>(*requested, 0, size - from);
+    }
+    return Value(s.substr(static_cast<size_t>(from), static_cast<size_t>(length)));
   }
   if (f == "str")
   {

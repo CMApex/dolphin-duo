@@ -243,6 +243,8 @@ public:
       return m_index >= 0 ? Value(m_index) : Value::Null();
     if (name == "$layout")
       return Value(m_evaluator.m_layout);
+    if (name == "$disc")
+      return Value(system.has_disc);
     return Value::Null();
   }
 
@@ -783,6 +785,16 @@ void Evaluator::RenderElement(const ElementSpec& element, const Scope& scope, do
     for (double v : element.viewbox)
       viewbox.push_back(Json(v));
     out["viewbox"] = picojson::value(std::move(viewbox));
+  }
+  for (const auto& [key, expressions] : element.lists)
+  {
+    picojson::array list;
+    for (const Expression& expression : expressions)
+    {
+      const std::optional<double> value = expression.Evaluate(scope).AsNumber();
+      list.push_back(Json(value && std::isfinite(*value) ? *value : 0.0));
+    }
+    out[key] = picojson::value(std::move(list));
   }
   if (element.type == ElementType::Bar)
   {
