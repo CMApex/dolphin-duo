@@ -10,18 +10,22 @@ party stats, inventories, scene views.
 Dolphin Duo is **not affiliated with or endorsed by the Dolphin project**. Please report Duo
 problems [here](https://github.com/CMApex/dolphin-duo/issues), not to Dolphin's issue tracker.
 
-> **Status: early and moving fast.** The builds below are debug test builds. Expect rough edges.
+> **Status: early and moving fast.** Expect rough edges.
 
 ## Download
 
-Test builds are on the [Releases page](https://github.com/CMApex/dolphin-duo/releases). Each
-branch publishes its newest build as a pre-release named `duo-latest-<branch>`:
-`duo-latest-master` is the main line, and the others carry work in progress.
+Get the newest **release** from the
+[Releases page](https://github.com/CMApex/dolphin-duo/releases/latest): the APK plus a zip for each
+companion.
 
 * The APK is arm64 and installs as **Dolphin Duo Debug**, alongside regular Dolphin rather than
   replacing it.
-* Every test build is signed with the same key, so newer builds install over older ones and keep
-  your settings and companions.
+* Releases and test builds are signed with the same key, so newer builds install over older ones
+  and keep your settings and companions.
+
+Want the very latest? Every branch also publishes its newest build as a pre-release named
+`duo-latest-<branch>`. `duo-latest-master` is the main line, and the others carry work in
+progress.
 
 ## Devices
 
@@ -102,7 +106,8 @@ cd Source/Android
 * Debug builds are signed with `Source/Android/duo-debug.keystore`, a public test key that keeps
   test builds installing over each other. **Never** sign a real release with it.
 * [`.github/workflows/duo-android.yml`](.github/workflows/duo-android.yml) builds the APK on every
-  push to `master` and `dolphin-duo/**` and publishes the pre-releases.
+  push to `master` and `dolphin-duo/**` and publishes the pre-releases. To make a release, add
+  `docs/DolphinDuo/releases/<version>.md` and push a tag `duo-v<version>` on a `master` commit.
 
 Desktop builds include `dolphin-tool duo` and the headless harness (`dolphin-emu-nogui`). Unit
 tests for the runtime are in `Source/UnitTests/Core/DuoTest.cpp`.

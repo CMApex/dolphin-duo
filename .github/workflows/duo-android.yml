@@ -3,12 +3,16 @@
 # Every run uploads the APK as a workflow artifact. Pushes (not pull requests) also publish it as a
 # rolling pre-release named "duo-latest-<branch>", so the newest build can be downloaded directly
 # on a phone or handheld from the repository's Releases page.
+#
+# Pushing a tag named "duo-v<version>" (on a commit in master) publishes a versioned release
+# "Dolphin Duo <version>" instead, with notes from docs/DolphinDuo/releases/<version>.md.
 
 name: Dolphin Duo Android APK
 
 on:
   push:
     branches: [master, "dolphin-duo/**"]
+    tags: ["duo-v*"]
   pull_request:
   workflow_dispatch:
 
@@ -122,9 +126,12 @@ jobs:
             exit 1
           fi
 
-          short=$(git rev-parse --short HEAD)
           mkdir -p out
-          cp "$apk" "out/dolphin-duo-${short}-arm64-debug.apk"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cp "$apk" "out/dolphin-duo-${GITHUB_REF_NAME#duo-v}-arm64.apk"
+          else
+            cp "$apk" "out/dolphin-duo-$(git rev-parse --short HEAD)-arm64-debug.apk"
+          fi
           ls -la out
 
       - name: Package companions
@@ -175,7 +182,7 @@ jobs:
             out/*.zip
 
       - name: Publish rolling pre-release
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -192,3 +199,25 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Dolphin Duo test build ($GITHUB_REF_NAME)" \
             --notes "$notes"
+
+      - name: Publish versioned release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#duo-v}"
+          notes="docs/DolphinDuo/releases/${version}.md"
+          git fetch --quiet origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error title=Not on master::$GITHUB_REF_NAME must point at a commit in master"
+            exit 1
+          fi
+          if [ ! -f "$notes" ]; then
+            echo "::error title=No release notes::Add $notes before tagging $GITHUB_REF_NAME"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" out/* \
+            --verify-tag \
+            --title "Dolphin Duo $version" \
+            --notes-file "$notes" \
+            --latest
