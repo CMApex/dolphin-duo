@@ -4,6 +4,7 @@
 #include "Core/Duo/Evaluator.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -186,7 +187,10 @@ public:
     if (name.starts_with('$'))
       return LookupSystem(name);
     const auto it = m_evaluator.m_values.find(name);
-    return it == m_evaluator.m_values.end() ? Value::Null() : it->second;
+    if (it != m_evaluator.m_values.end())
+      return it->second;
+    const auto state = m_evaluator.m_state.find(name);
+    return state == m_evaluator.m_state.end() ? Value::Null() : state->second;
   }
 
   Value LookupElement(std::string_view array, s64 index, std::string_view field) const override
@@ -237,6 +241,8 @@ public:
       return Value(std::string(m_page));
     if (name == "$index")
       return m_index >= 0 ? Value(m_index) : Value::Null();
+    if (name == "$layout")
+      return Value(m_evaluator.m_layout);
     return Value::Null();
   }
 
@@ -292,6 +298,39 @@ private:
 Evaluator::Evaluator(const Manifest& manifest, TextDecoder decoder)
     : m_manifest(manifest), m_decoder(std::move(decoder))
 {
+  // Initial state is evaluated once, in order, so a state entry may build on an earlier one.
+  for (const StateSpec& state : m_manifest.state)
+  {
+    const GlobalScope scope(*this);
+    m_state.insert_or_assign(state.name, state.initial.Evaluate(scope));
+  }
+}
+
+void Evaluator::SetState(std::string_view name, Value value)
+{
+  const auto it = m_state.find(name);
+  if (it != m_state.end())
+    it->second = std::move(value);
+}
+
+Value Evaluator::GetState(std::string_view name) const
+{
+  const auto it = m_state.find(name);
+  return it == m_state.end() ? Value::Null() : it->second;
+}
+
+Value Evaluator::EvaluateForRow(const Expression& expression, std::string_view row_array,
+                                s64 row) const
+{
+  const GlobalScope global(*this, {}, row);
+  const ArraySpec* spec = row_array.empty() ? nullptr : m_manifest.FindArray(row_array);
+  const std::vector<ArrayElement>* elements = spec ? GetArray(row_array) : nullptr;
+  if (elements && row >= 0 && row < static_cast<s64>(elements->size()))
+  {
+    const ElementScope scope(global, *spec, (*elements)[static_cast<size_t>(row)], row);
+    return expression.Evaluate(scope);
+  }
+  return expression.Evaluate(global);
 }
 
 std::optional<u32> Evaluator::ResolveAddress(MemorySource& memory, u32 address,
@@ -409,8 +448,21 @@ void Evaluator::Sample(MemorySource& memory, const SystemInfo& system)
   const GlobalScope scope(*this);
   for (const FieldSpec& field : m_manifest.values)
   {
-    Value value =
-        field.computed ? field.expression.Evaluate(scope) : ReadField(memory, field, 0, m_decoder);
+    Value value;
+    if (field.computed)
+    {
+      value = field.expression.Evaluate(scope);
+    }
+    else if (field.address_expression)
+    {
+      const std::optional<s64> address = field.address_expression->Evaluate(scope).AsInteger();
+      if (address && *address > 0 && *address <= 0xFFFFFFFF)
+        value = ReadField(memory, field, static_cast<u32>(*address), m_decoder);
+    }
+    else
+    {
+      value = ReadField(memory, field, 0, m_decoder);
+    }
     m_values.insert_or_assign(field.name, std::move(value));
   }
   for (const ArraySpec& array : m_manifest.arrays)
@@ -457,7 +509,14 @@ void Evaluator::SampleArray(const ArraySpec& spec) const
   }
   count = std::min(count, spec.max_count);
 
-  const std::optional<u32> base = ResolveAddress(memory, spec.address, spec.offsets);
+  u32 start = spec.address;
+  if (spec.address_expression)
+  {
+    const std::optional<s64> address = spec.address_expression->Evaluate(scope).AsInteger();
+    start = address && *address > 0 && *address <= 0xFFFFFFFF ? static_cast<u32>(*address) : 0;
+  }
+  const std::optional<u32> base =
+      start ? ResolveAddress(memory, start, spec.offsets) : std::optional<u32>();
   if (base)
   {
     for (u32 slot = 0; slot < count; ++slot)
@@ -486,6 +545,15 @@ void Evaluator::SampleArray(const ArraySpec& spec) const
         {
           const ElementScope element_scope(scope, spec, element, index);
           element.fields[f] = field.expression.Evaluate(element_scope);
+        }
+        else if (field.address_expression)
+        {
+          // An absolute address computed from earlier fields, e.g. an index into another table.
+          const ElementScope element_scope(scope, spec, element, index);
+          const std::optional<s64> address =
+              field.address_expression->Evaluate(element_scope).AsInteger();
+          if (address && *address > 0 && *address <= 0xFFFFFFFF)
+            element.fields[f] = ReadField(memory, field, static_cast<u32>(*address), m_decoder);
         }
         else
         {
@@ -519,9 +587,20 @@ const std::vector<ArrayElement>* Evaluator::GetArray(std::string_view name) cons
   return it == m_arrays.end() ? nullptr : &it->second;
 }
 
-picojson::value Evaluator::Render(std::string& page_id) const
+struct Evaluator::CanvasContext
+{
+  const GlobalScope* global = nullptr;  // The page scope that element scopes chain to.
+  picojson::array out;
+  size_t budget = 6000;  // Hard cap on emitted elements per frame.
+};
+
+picojson::value Evaluator::Render(std::string& page_id, std::string_view layout_id) const
 {
   picojson::object result;
+  const LayoutSpec* layout = m_manifest.FindLayout(layout_id);
+  if (!layout && !m_manifest.layouts.empty())
+    layout = &m_manifest.layouts.front();
+  m_layout = layout ? layout->id : std::string();
   picojson::array pages;
 
   const PageSpec* active = nullptr;
@@ -559,7 +638,291 @@ picojson::value Evaluator::Render(std::string& page_id) const
   }
   result["page"] = Json(page_id);
   result["widgets"] = picojson::value(std::move(widgets));
+
+  const std::vector<ElementSpec>* page_elements = active ? active->ElementsFor(m_layout) : nullptr;
+  if (layout && (page_elements || !layout->elements.empty()))
+  {
+    const GlobalScope scope(*this, page_id);
+    CanvasContext context;
+    context.global = &scope;
+    RenderElements(layout->elements, scope, 0, 0, {}, -1, context);
+    if (page_elements)
+      RenderElements(*page_elements, scope, 0, 0, {}, -1, context);
+
+    picojson::object canvas;
+    canvas["layout"] = Json(layout->id);
+    canvas["w"] = Json(static_cast<double>(layout->width));
+    canvas["h"] = Json(static_cast<double>(layout->height));
+    canvas["background"] =
+        layout->background ? Json(ResolveColor(layout->background->Render(scope))) :
+                             picojson::value();
+    picojson::object fonts;
+    for (const auto& [name, file] : m_manifest.theme.fonts)
+      fonts[name] = Json(file);
+    canvas["fonts"] = picojson::value(std::move(fonts));
+    picojson::array layouts;
+    for (const LayoutSpec& entry : m_manifest.layouts)
+      layouts.push_back(Json(entry.id));
+    canvas["layouts"] = picojson::value(std::move(layouts));
+    result["canvas"] = picojson::value(std::move(canvas));
+    result["elements"] = picojson::value(std::move(context.out));
+  }
   return picojson::value(std::move(result));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Canvas pages
+
+namespace
+{
+constexpr std::string_view COLOR_PROPS[] = {"fill",  "fill2",  "stroke",  "color", "trim",
+                                            "edge",  "track",  "track2",  "off",   "shadow",
+                                            "outline", "tint", "grid_color", "glow"};
+
+bool IsColorProp(std::string_view key)
+{
+  return std::ranges::find(COLOR_PROPS, key) != std::end(COLOR_PROPS);
+}
+}  // namespace
+
+std::string Evaluator::ResolveColor(const std::string& color) const
+{
+  if (!color.starts_with('@'))
+    return color;
+  const auto it = m_manifest.theme.colors.find(std::string_view(color).substr(1));
+  return it == m_manifest.theme.colors.end() ? std::string() : it->second;
+}
+
+void Evaluator::RenderElements(const std::vector<ElementSpec>& elements, const Scope& scope,
+                               double origin_x, double origin_y, const std::string& row_array,
+                               s64 row, CanvasContext& context) const
+{
+  for (const ElementSpec& element : elements)
+    RenderElement(element, scope, origin_x, origin_y, row_array, row, context);
+}
+
+void Evaluator::RenderElement(const ElementSpec& element, const Scope& scope, double origin_x,
+                              double origin_y, const std::string& row_array, s64 row,
+                              CanvasContext& context) const
+{
+  if (context.out.size() >= context.budget)
+    return;
+  if (element.visible_if && !element.visible_if->Evaluate(scope).Truthy())
+    return;
+
+  const auto number = [&](std::string_view key) -> std::optional<double> {
+    const auto it = element.numbers.find(key);
+    if (it == element.numbers.end())
+      return std::nullopt;
+    return it->second.Evaluate(scope).AsNumber();
+  };
+  const double x = origin_x + number("x").value_or(0.0);
+  const double y = origin_y + number("y").value_or(0.0);
+
+  switch (element.type)
+  {
+  case ElementType::Group:
+    RenderElements(element.children, scope, x, y, row_array, row, context);
+    return;
+
+  case ElementType::Repeat:
+  {
+    const ArraySpec* spec = m_manifest.FindArray(element.source);
+    const std::vector<ArrayElement>* items = GetArray(element.source);
+    if (!spec || !items)
+      return;
+    const double dx = number("dx").value_or(0.0);
+    const double dy = number("dy").value_or(0.0);
+    const s64 columns = std::max<s64>(
+        1, static_cast<s64>(number("columns").value_or(dy != 0.0 ? 1.0 : 1e9)));
+    const s64 start = std::max<s64>(0, static_cast<s64>(number("start").value_or(0.0)));
+    const s64 limit = static_cast<s64>(number("limit").value_or(1e9));
+    const GlobalScope& parent = *context.global;
+    s64 shown = 0;
+    s64 skipped = 0;
+    for (s64 i = 0; i < static_cast<s64>(items->size()) && shown < limit; ++i)
+    {
+      const ElementScope item_scope(parent, *spec, (*items)[static_cast<size_t>(i)], i);
+      if (element.where && !element.where->Evaluate(item_scope).Truthy())
+        continue;
+      // `start` skips matching elements, for paging through a long list.
+      if (skipped++ < start)
+        continue;
+      RenderElements(element.children, item_scope, x + dx * static_cast<double>(shown % columns),
+                     y + dy * static_cast<double>(shown / columns), element.source, i, context);
+      ++shown;
+    }
+    return;
+  }
+
+  default:
+    break;
+  }
+
+  picojson::object out;
+  static constexpr std::array<const char*, 10> TYPE_NAMES = {
+      "rect", "frame", "text", "bar", "pips", "image", "path", "grid", "repeat", "group"};
+  out["t"] = Json(std::string(TYPE_NAMES[static_cast<size_t>(element.type)]));
+  out["x"] = Json(x);
+  out["y"] = Json(y);
+  for (const auto& [key, expression] : element.numbers)
+  {
+    if (key == "x" || key == "y")
+      continue;
+    const std::optional<double> value = expression.Evaluate(scope).AsNumber();
+    out[key] = value && std::isfinite(*value) ? Json(*value) : picojson::value();
+  }
+  for (const auto& [key, text] : element.props)
+  {
+    const std::string rendered = text.Render(scope);
+    out[key] = Json(IsColorProp(key) ? ResolveColor(rendered) : rendered);
+  }
+  if (!element.viewbox.empty())
+  {
+    picojson::array viewbox;
+    for (double v : element.viewbox)
+      viewbox.push_back(Json(v));
+    out["viewbox"] = picojson::value(std::move(viewbox));
+  }
+  if (element.type == ElementType::Bar)
+  {
+    const auto value = element.numbers.find("value");
+    const auto max = element.numbers.find("max");
+    out["fraction"] = JsonFraction(value->second.Evaluate(scope), max->second.Evaluate(scope));
+  }
+  if (!element.action.empty())
+  {
+    out["action"] = Json(element.action);
+    if (!row_array.empty() && row >= 0)
+    {
+      out["source"] = Json(row_array);
+      out["index"] = Json(static_cast<double>(row));
+    }
+  }
+
+  if (element.type == ElementType::Grid)
+  {
+    const s64 cols = std::clamp<s64>(static_cast<s64>(number("cols").value_or(0)), 0, 256);
+    const s64 rows = std::clamp<s64>(static_cast<s64>(number("rows").value_or(0)), 0, 256);
+    const s64 view_cols =
+        std::clamp<s64>(static_cast<s64>(number("view_cols").value_or(cols)), 1, std::max<s64>(cols, 1));
+    const s64 view_rows =
+        std::clamp<s64>(static_cast<s64>(number("view_rows").value_or(rows)), 1, std::max<s64>(rows, 1));
+    const double center_x = number("center_x").value_or(view_cols / 2.0);
+    const double center_y = number("center_y").value_or(view_rows / 2.0);
+    const s64 left = std::clamp<s64>(static_cast<s64>(std::floor(center_x - view_cols / 2.0 + 0.5)),
+                                     0, std::max<s64>(cols - view_cols, 0));
+    const s64 top = std::clamp<s64>(static_cast<s64>(std::floor(center_y - view_rows / 2.0 + 0.5)),
+                                    0, std::max<s64>(rows - view_rows, 0));
+    out["cols"] = Json(static_cast<double>(view_cols));
+    out["rows"] = Json(static_cast<double>(view_rows));
+    out["left"] = Json(static_cast<double>(left));
+    out["top"] = Json(static_cast<double>(top));
+    out.erase("cell");
+
+    // Cells: colour per cell from the "cell" template, as indices into a small palette.
+    const auto cell_template = element.props.find("cell");
+    const ArraySpec* spec = m_manifest.FindArray(element.source);
+    const std::vector<ArrayElement>* cells = spec ? GetArray(element.source) : nullptr;
+    if (cell_template != element.props.end() && cells && cols > 0)
+    {
+      std::vector<std::string> palette;
+      std::vector<int> indices(static_cast<size_t>(view_cols * view_rows), -1);
+      const GlobalScope& parent = *context.global;
+      for (size_t i = 0; i < cells->size(); ++i)
+      {
+        const ArrayElement& cell = (*cells)[i];
+        const s64 cx = static_cast<s64>(cell.slot) % cols - left;
+        const s64 cy = static_cast<s64>(cell.slot) / cols - top;
+        if (cx < 0 || cy < 0 || cx >= view_cols || cy >= view_rows)
+          continue;
+        const ElementScope cell_scope(parent, *spec, cell, static_cast<s64>(i));
+        const std::string color = ResolveColor(cell_template->second.Render(cell_scope));
+        if (color.empty())
+          continue;
+        auto it = std::ranges::find(palette, color);
+        if (it == palette.end())
+        {
+          if (palette.size() >= 64)
+            continue;
+          palette.push_back(color);
+          it = palette.end() - 1;
+        }
+        indices[static_cast<size_t>(cy * view_cols + cx)] = static_cast<int>(it - palette.begin());
+      }
+      picojson::array palette_json;
+      for (const std::string& color : palette)
+        palette_json.push_back(Json(color));
+      picojson::array cells_json;
+      for (int index : indices)
+        cells_json.push_back(Json(static_cast<double>(index)));
+      out["palette"] = picojson::value(std::move(palette_json));
+      out["cells"] = picojson::value(std::move(cells_json));
+    }
+
+    // Marks: units, cursor and anything else placed in cell coordinates.
+    picojson::array marks;
+    const auto add_mark = [&](const GridLayerSpec& layer, const Scope& s, const std::string& source,
+                              s64 index) {
+      if (layer.where && !layer.where->Evaluate(s).Truthy())
+        return;
+      const std::optional<double> mx = layer.x.Evaluate(s).AsNumber();
+      const std::optional<double> my = layer.y.Evaluate(s).AsNumber();
+      if (!mx || !my)
+        return;
+      const double wx = *mx - static_cast<double>(left);
+      const double wy = *my - static_cast<double>(top);
+      if (wx < 0 || wy < 0 || wx >= static_cast<double>(view_cols) ||
+          wy >= static_cast<double>(view_rows))
+      {
+        return;
+      }
+      picojson::object mark;
+      mark["x"] = Json(wx);
+      mark["y"] = Json(wy);
+      for (const auto& [key, text] : layer.props)
+      {
+        const std::string rendered = text.Render(s);
+        mark[key] = Json(IsColorProp(key) ? ResolveColor(rendered) : rendered);
+      }
+      if (layer.size)
+      {
+        if (const std::optional<double> size = layer.size->Evaluate(s).AsNumber())
+          mark["size"] = Json(*size);
+      }
+      if (!layer.action.empty())
+      {
+        mark["action"] = Json(layer.action);
+        if (!source.empty())
+        {
+          mark["source"] = Json(source);
+          mark["index"] = Json(static_cast<double>(index));
+        }
+      }
+      marks.emplace_back(std::move(mark));
+    };
+    for (const GridLayerSpec& layer : element.layers)
+    {
+      if (layer.source.empty())
+      {
+        add_mark(layer, scope, {}, -1);
+        continue;
+      }
+      const ArraySpec* layer_spec = m_manifest.FindArray(layer.source);
+      const std::vector<ArrayElement>* items = layer_spec ? GetArray(layer.source) : nullptr;
+      if (!items)
+        continue;
+      const GlobalScope& parent = *context.global;
+      for (size_t i = 0; i < items->size(); ++i)
+      {
+        const ElementScope item_scope(parent, *layer_spec, (*items)[i], static_cast<s64>(i));
+        add_mark(layer, item_scope, layer.source, static_cast<s64>(i));
+      }
+    }
+    out["marks"] = picojson::value(std::move(marks));
+  }
+
+  context.out.emplace_back(std::move(out));
 }
 
 picojson::value Evaluator::RenderWidget(const WidgetSpec& widget) const

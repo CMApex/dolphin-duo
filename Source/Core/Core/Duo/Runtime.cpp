@@ -3,6 +3,8 @@
 
 #include "Core/Duo/Runtime.h"
 
+#include <tuple>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -560,6 +562,11 @@ void Runtime::OnFrameEnd(const Core::CPUThreadGuard& guard)
     m_page = *pending.page;
     render_now = true;
   }
+  if (pending.viewport)
+  {
+    std::tie(m_viewport_width, m_viewport_height) = *pending.viewport;
+    render_now = true;
+  }
 
   std::vector<std::string> messages;
   for (ActionRequest& request : pending.actions)
@@ -654,7 +661,10 @@ void Runtime::Publish()
 
   if (m_loaded && m_loaded->evaluator && m_loaded->evaluator->HasSample())
   {
-    picojson::value rendered = m_loaded->evaluator->Render(m_page);
+    const LayoutSpec* layout =
+        m_loaded->manifest->ChooseLayout(m_viewport_width, m_viewport_height);
+    picojson::value rendered =
+        m_loaded->evaluator->Render(m_page, layout ? std::string_view(layout->id) : "");
     for (auto& [key, value] : rendered.get<picojson::object>())
       root[key] = std::move(value);
   }
@@ -696,6 +706,12 @@ void Runtime::SetPage(std::string page)
 {
   std::lock_guard lock(m_mutex);
   m_pending.page = std::move(page);
+}
+
+void Runtime::SetViewport(u32 width, u32 height)
+{
+  std::lock_guard lock(m_mutex);
+  m_pending.viewport = std::make_pair(width, height);
 }
 
 void Runtime::TriggerAction(ActionRequest request)

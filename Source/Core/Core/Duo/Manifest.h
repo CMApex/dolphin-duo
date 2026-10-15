@@ -67,12 +67,17 @@ struct FieldSpec
 
   // Computed fields.
   Expression expression;
+
+  // Memory-backed fields whose address is computed ("address_expr") from earlier values or, in
+  // arrays, earlier fields of the same element. Replaces `address`/`offset`; `offsets` still apply.
+  std::optional<Expression> address_expression;
 };
 
 struct ArraySpec
 {
   std::string name;
   u32 address = 0;
+  std::optional<Expression> address_expression;  // "address_expr": computed from values.
   std::vector<u32> offsets;
   u32 stride = 0;
   // When true, each slot of the array holds a pointer to the element rather than the element.
@@ -166,12 +171,91 @@ struct WidgetSpec
   float aspect = 1.0f;  // Height / width of the map view.
 };
 
+// ---------------------------------------------------------------------------------------------
+// Canvas pages: absolutely positioned elements on a fixed design canvas per screen shape. This is
+// what lets a companion look like part of its game instead of a generic list of widgets.
+
+enum class ElementType
+{
+  Rect,    // Filled/stroked rectangle, optional rounded corners and vertical gradient.
+  Frame,   // Ornamented panel: gradient fill, outer edge, inner trim line and corner ornaments.
+  Text,    // A text template in a box, aligned, optionally shrunk to fit.
+  Bar,     // Value/max gauge.
+  Pips,    // `count` marks, the first `filled` of them lit.
+  Image,   // A picture from the companion's folder.
+  Path,    // SVG path data scaled from `viewbox` into the box: icons and ornaments.
+  Grid,    // A tile map: coloured cells plus marks (units, cursor) in cell coordinates.
+  Repeat,  // Children once per element of an array, offset by dx/dy (wrapping after `columns`).
+  Group,   // Children offset by x/y, shown together.
+};
+
+// One layer of marks on a grid: one mark, or one per element of `source`.
+struct GridLayerSpec
+{
+  std::string source;
+  Expression x;  // Column, in cells.
+  Expression y;  // Row, in cells.
+  std::optional<Expression> where;
+  // Rendered per mark: fill, stroke, shape (dot, square, diamond, ring, cursor), label.
+  std::map<std::string, Template, std::less<>> props;
+  std::optional<Expression> size;  // Mark size as a fraction of a cell, default 0.8.
+  std::string action;
+};
+
+struct ElementSpec
+{
+  ElementType type = ElementType::Rect;
+  std::optional<Expression> visible_if;
+
+  // Numeric properties (x, y, w, h, radius, value, max, count, filled, size, ...): expressions.
+  std::map<std::string, Expression, std::less<>> numbers;
+  // Text properties (text, fill, stroke, color, font, align, src, d, ...): templates. Colours may
+  // name a theme colour as "@name".
+  std::map<std::string, Template, std::less<>> props;
+  // Numeric arrays: path "viewbox".
+  std::vector<double> viewbox;
+
+  std::string action;
+  std::string source;               // Repeat and grid cells: the array to iterate.
+  std::optional<Expression> where;  // Repeat: only elements for which this is true take a slot.
+
+  std::vector<ElementSpec> children;  // Group and repeat.
+
+  // Grid: cells come from `source` in row-major order and are coloured by the "cell" template.
+  std::vector<GridLayerSpec> layers;
+};
+
+struct LayoutSpec
+{
+  std::string id;
+  u32 width = 0;
+  u32 height = 0;
+  std::optional<Template> background;
+  std::vector<ElementSpec> elements;  // Drawn under every page: frames, title bar, tabs.
+};
+
+struct ThemeSpec
+{
+  std::map<std::string, std::string, std::less<>> colors;  // name -> "#RRGGBB" / "#AARRGGBB"
+  std::map<std::string, std::string, std::less<>> fonts;   // name -> file in the package
+};
+
+struct StateSpec
+{
+  std::string name;
+  Expression initial;
+};
+
 struct PageSpec
 {
   std::string id;
   Template title;
   std::optional<Expression> visible_if;
   std::vector<WidgetSpec> widgets;
+  // Canvas elements per layout id; the "*" entry applies to every layout without its own.
+  std::map<std::string, std::vector<ElementSpec>, std::less<>> elements;
+
+  const std::vector<ElementSpec>* ElementsFor(std::string_view layout) const;
 };
 
 enum class Control : int
@@ -247,6 +331,7 @@ struct ActionStep
     Wait,   // Do nothing for `frames` frames.
     Write,  // Write `value` to a memory-backed value or array field.
     Page,   // Switch the companion to page `page`.
+    Set,    // Set UI state `target` to `value` (no game access; e.g. the selected unit).
   };
 
   Kind kind = Kind::Wait;
@@ -292,8 +377,17 @@ struct Manifest
   std::vector<PageSpec> pages;
   std::vector<ActionSpec> actions;
 
+  ThemeSpec theme;
+  std::vector<LayoutSpec> layouts;
+  std::vector<StateSpec> state;
+
   // Whether this manifest declares support for the given running game.
   bool Targets(std::string_view game_id, u16 revision) const;
+
+  // The layout whose canvas shape is closest to a screen of the given size, or null when the
+  // companion has no canvas layouts.
+  const LayoutSpec* ChooseLayout(u32 screen_width, u32 screen_height) const;
+  const LayoutSpec* FindLayout(std::string_view id) const;
 
   const ActionSpec* FindAction(std::string_view id) const;
   const ArraySpec* FindArray(std::string_view name) const;

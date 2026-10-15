@@ -44,7 +44,7 @@ public:
 
   // Advances by one emulated frame. `page` may be changed by page steps. Problems are appended to
   // `messages` for the companion screen to show.
-  void Step(const Manifest& manifest, const Evaluator& evaluator, MemorySource& memory,
+  void Step(const Manifest& manifest, Evaluator& evaluator, MemorySource& memory,
             InputSink* input, bool writes_allowed, std::string& page,
             std::vector<std::string>& messages);
 

@@ -253,7 +253,8 @@ NodePtr MakeConstant(Value value)
 
 constexpr std::string_view KNOWN_FUNCTIONS[] = {"min",   "max",     "abs", "floor", "ceil",
                                                 "round", "clamp",   "bit", "bits",  "count",
-                                                "table", "default", "str"};
+                                                "table", "default", "str",   "find",
+                                                "countif"};
 
 class Parser
 {
@@ -422,7 +423,9 @@ private:
         do
         {
           // count() and table() take a bare name as their first argument.
-          if (arguments.empty() && (token.text == "count" || token.text == "table") &&
+          if (arguments.empty() &&
+              (token.text == "count" || token.text == "table" || token.text == "find" ||
+               token.text == "countif") &&
               Peek().type == TokenType::Name)
           {
             arguments.push_back(MakeConstant(Value(Next().text)));
@@ -477,6 +480,14 @@ private:
     else if (f == "bit" || f == "table" || f == "default")
     {
       min_args = max_args = 2;
+    }
+    else if (f == "find" || f == "countif")
+    {
+      // find(array, 'field', value[, 'field2', value2]); countif() takes the same arguments.
+      min_args = 3;
+      max_args = 5;
+      if (count == 4)
+        count = 0;  // Fails the check below.
     }
     if (count >= min_args && count <= max_args)
       return true;
@@ -627,6 +638,44 @@ Value EvaluateCall(const Expression::Node& node, const Scope& scope)
   {
     Value value = Evaluate(*args[0], scope);
     return value.IsNull() ? Evaluate(*args[1], scope) : value;
+  }
+  if (f == "find" || f == "countif")
+  {
+    // find: index of the first element whose fields equal the given values, or null.
+    // countif: how many elements match.
+    const Value array = Evaluate(*args[0], scope);
+    if (!array.IsString())
+      return Value::Null();
+    const std::optional<s64> count = scope.Count(array.String()).AsInteger();
+    if (!count)
+      return Value::Null();
+    std::vector<std::pair<std::string, Value>> wanted;
+    for (size_t i = 1; i + 1 < args.size(); i += 2)
+    {
+      const Value field = Evaluate(*args[i], scope);
+      if (!field.IsString())
+        return Value::Null();
+      wanted.emplace_back(field.String(), Evaluate(*args[i + 1], scope));
+    }
+    s64 matches = 0;
+    for (s64 index = 0; index < *count; ++index)
+    {
+      const bool match = std::ranges::all_of(wanted, [&](const auto& entry) {
+        const Value value = scope.LookupElement(array.String(), index, entry.first);
+        const std::optional<double> a = value.AsNumber();
+        const std::optional<double> b = entry.second.AsNumber();
+        if (a && b)
+          return *a == *b;
+        return !value.IsNull() && value == entry.second;
+      });
+      if (match)
+      {
+        if (f == "find")
+          return Value(index);
+        ++matches;
+      }
+    }
+    return f == "countif" ? Value(matches) : Value::Null();
   }
   if (f == "str")
   {

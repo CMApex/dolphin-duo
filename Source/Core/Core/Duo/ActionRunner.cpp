@@ -30,7 +30,7 @@ void ActionRunner::Cancel(InputSink* input, int controller)
   m_queue.clear();
 }
 
-void ActionRunner::Step(const Manifest& manifest, const Evaluator& evaluator, MemorySource& memory,
+void ActionRunner::Step(const Manifest& manifest, Evaluator& evaluator, MemorySource& memory,
                         InputSink* input, bool writes_allowed, std::string& page,
                         std::vector<std::string>& messages)
 {
@@ -115,6 +115,14 @@ void ActionRunner::Step(const Manifest& manifest, const Evaluator& evaluator, Me
 
     case ActionStep::Kind::Page:
       page = step.page;
+      m_dirty = true;
+      ++running.step;
+      break;
+
+    case ActionStep::Kind::Set:
+      evaluator.SetState(step.target,
+                         evaluator.EvaluateForRow(step.value, running.request.row_array,
+                                                  running.request.row));
       m_dirty = true;
       ++running.step;
       break;

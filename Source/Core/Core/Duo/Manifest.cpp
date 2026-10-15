@@ -7,6 +7,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
+#include <map>
+#include <set>
 #include <utility>
 
 #include <fmt/format.h>
@@ -309,7 +312,7 @@ std::optional<FieldSpec> ParseField(Reader& r, const picojson::value& json, std:
 
   r.CheckKeys(*object, path,
               {"name", "type", "address", "offset", "offsets", "mask", "shift", "length",
-               "encoding", "expr"});
+               "encoding", "expr", "address_expr"});
 
   FieldSpec field;
   const std::optional<std::string> name = r.String(*object, "name", path, true);
@@ -349,10 +352,21 @@ std::optional<FieldSpec> ParseField(Reader& r, const picojson::value& json, std:
   field.type = *type;
 
   const std::string address_key = is_array_field ? "offset" : "address";
-  const std::optional<u32> address = r.U32(*object, address_key, field_path, true);
-  if (!address)
-    return std::nullopt;
-  field.address = *address;
+  if (const picojson::value* address_expr = r.Get(*object, "address_expr"))
+  {
+    if (r.Get(*object, address_key))
+      r.Error(field_path, fmt::format("use either \"{}\" or \"address_expr\"", address_key));
+    field.address_expression = r.Expr(*address_expr, field_path, "\"address_expr\"");
+    if (!field.address_expression)
+      return std::nullopt;
+  }
+  else
+  {
+    const std::optional<u32> address = r.U32(*object, address_key, field_path, true);
+    if (!address)
+      return std::nullopt;
+    field.address = *address;
+  }
 
   if (const picojson::array* offsets = r.Array(*object, "offsets", field_path))
   {
@@ -412,8 +426,8 @@ std::optional<ArraySpec> ParseArray(Reader& r, const picojson::value& json, std:
   if (!object)
     return std::nullopt;
   r.CheckKeys(*object, path,
-              {"name", "address", "offsets", "stride", "pointer_table", "count", "count_expr",
-               "max_count", "where", "fields"});
+              {"name", "address", "address_expr", "offsets", "stride", "pointer_table", "count",
+               "count_expr", "max_count", "where", "fields"});
 
   ArraySpec array;
   const std::optional<std::string> name = r.String(*object, "name", path, true);
@@ -427,7 +441,20 @@ std::optional<ArraySpec> ParseArray(Reader& r, const picojson::value& json, std:
   array.name = *name;
   const std::string array_path = fmt::format("array \"{}\"", *name);
 
-  const std::optional<u32> address = r.U32(*object, "address", array_path, true);
+  std::optional<u32> address;
+  if (const picojson::value* address_expr = r.Get(*object, "address_expr"))
+  {
+    if (r.Get(*object, "address"))
+      r.Error(array_path, "use either \"address\" or \"address_expr\"");
+    array.address_expression = r.Expr(*address_expr, array_path, "\"address_expr\"");
+    if (!array.address_expression)
+      return std::nullopt;
+    address = 0;
+  }
+  else
+  {
+    address = r.U32(*object, "address", array_path, true);
+  }
   const std::optional<u32> stride = r.U32(*object, "stride", array_path, true);
   if (!address || !stride)
     return std::nullopt;
@@ -779,8 +806,271 @@ std::optional<ActionStep> ParseStep(Reader& r, const picojson::value& json, std:
     step.page = *page;
     return step;
   }
-  r.Error(path, "a step needs one of \"press\", \"wait\", \"write\" or \"page\"");
+  if (const std::optional<std::string> target = r.String(*object, "set", path, false))
+  {
+    r.CheckKeys(*object, path, {"set", "value"});
+    step.kind = ActionStep::Kind::Set;
+    step.target = *target;
+    const picojson::value* value = r.Get(*object, "value");
+    if (!value)
+    {
+      r.Error(path, "a set step needs a \"value\"");
+      return std::nullopt;
+    }
+    std::optional<Expression> expression = r.Expr(*value, path, "\"value\"");
+    if (!expression)
+      return std::nullopt;
+    step.value = std::move(*expression);
+    return step;
+  }
+  r.Error(path, "a step needs one of \"press\", \"wait\", \"write\", \"page\" or \"set\"");
   return std::nullopt;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Canvas elements
+
+constexpr std::pair<std::string_view, ElementType> ELEMENT_TYPES[] = {
+    {"rect", ElementType::Rect},     {"frame", ElementType::Frame}, {"text", ElementType::Text},
+    {"bar", ElementType::Bar},       {"pips", ElementType::Pips},   {"image", ElementType::Image},
+    {"path", ElementType::Path},     {"grid", ElementType::Grid},   {"repeat", ElementType::Repeat},
+    {"group", ElementType::Group},
+};
+
+// Numeric element properties, parsed as expressions.
+constexpr std::string_view ELEMENT_NUMBERS[] = {
+    "x",         "y",          "w",          "h",        "radius",       "stroke_width",
+    "value",     "max",        "count",      "filled",   "size",         "opacity",
+    "dx",        "dy",         "columns",    "limit",    "start",        "cols",
+    "rows",      "view_cols",  "view_rows",  "center_x", "center_y",     "line_height",
+    "trim_width", "inset",     "corner_size", "gap",     "outline_width", "shadow_dx",
+    "shadow_dy", "min_size",   "fit",        "rotate",   "letter_spacing", "grid_width",
+};
+
+// Text element properties, parsed as templates.
+constexpr std::string_view ELEMENT_TEXTS[] = {
+    "text",   "fill",   "fill2",  "stroke", "color",  "font",    "align", "valign",
+    "src",    "d",      "shape",  "corner", "trim",   "edge",    "track", "track2",
+    "off",    "shadow", "outline", "cell",  "weight", "tint",    "grid_color", "glow",
+    "fill_angle", "case",
+};
+
+constexpr std::string_view ELEMENT_STRUCTURE[] = {"type",   "visible_if", "action",
+                                                  "source", "elements",   "layers",
+                                                  "viewbox", "style",     "where"};
+
+bool IsElementNumber(std::string_view key)
+{
+  return std::ranges::find(ELEMENT_NUMBERS, key) != std::end(ELEMENT_NUMBERS);
+}
+
+bool IsElementText(std::string_view key)
+{
+  return std::ranges::find(ELEMENT_TEXTS, key) != std::end(ELEMENT_TEXTS);
+}
+
+std::optional<ElementSpec> ParseElement(Reader& r, const picojson::value& json,
+                                        std::string_view path,
+                                        const std::map<std::string, picojson::object>& styles,
+                                        int depth = 0);
+
+std::vector<ElementSpec> ParseElementList(Reader& r, const picojson::value& json,
+                                          std::string_view path,
+                                          const std::map<std::string, picojson::object>& styles,
+                                          int depth)
+{
+  std::vector<ElementSpec> result;
+  if (!json.is<picojson::array>())
+  {
+    r.Error(path, "\"elements\" must be an array");
+    return result;
+  }
+  const auto& list = json.get<picojson::array>();
+  for (size_t i = 0; i < list.size(); ++i)
+  {
+    if (std::optional<ElementSpec> element =
+            ParseElement(r, list[i], fmt::format("{} element #{}", path, i + 1), styles, depth))
+    {
+      result.push_back(std::move(*element));
+    }
+  }
+  return result;
+}
+
+std::optional<ElementSpec> ParseElement(Reader& r, const picojson::value& json,
+                                        std::string_view path,
+                                        const std::map<std::string, picojson::object>& styles,
+                                        int depth)
+{
+  if (depth > 16)
+  {
+    r.Error(path, "elements are nested too deeply");
+    return std::nullopt;
+  }
+  const picojson::object* given = r.Object(json, path);
+  if (!given)
+    return std::nullopt;
+
+  // A "style" names a preset from theme.styles; the element's own keys win.
+  picojson::object merged;
+  if (const std::optional<std::string> style = r.String(*given, "style", path, false))
+  {
+    const auto it = styles.find(*style);
+    if (it == styles.end())
+      r.Error(path, fmt::format("unknown style \"{}\"", *style));
+    else
+      merged = it->second;
+  }
+  for (const auto& [key, value] : *given)
+    merged[key] = value;
+  const picojson::object& object = merged;
+
+  const std::optional<std::string> type_name = r.String(object, "type", path, true);
+  if (!type_name)
+    return std::nullopt;
+  const auto type_it = std::ranges::find(ELEMENT_TYPES, *type_name,
+                                         &std::pair<std::string_view, ElementType>::first);
+  const std::string element_path = fmt::format("{} ({})", path, *type_name);
+  if (type_it == std::end(ELEMENT_TYPES))
+  {
+    r.Error(element_path, "unknown element type (rect, frame, text, bar, pips, image, path, grid, "
+                          "repeat, group)");
+    return std::nullopt;
+  }
+
+  ElementSpec element;
+  element.type = type_it->second;
+  element.visible_if = r.OptionalExpr(object, "visible_if", element_path);
+  element.action = r.String(object, "action", element_path, false).value_or("");
+  element.source = r.String(object, "source", element_path, false).value_or("");
+  element.where = r.OptionalExpr(object, "where", element_path);
+
+  for (const auto& [key, value] : object)
+  {
+    if (key.starts_with("//") || key.starts_with('_') || value.is<picojson::null>())
+      continue;
+    if (IsElementNumber(key))
+    {
+      if (std::optional<Expression> expression =
+              r.Expr(value, element_path, fmt::format("\"{}\"", key)))
+      {
+        element.numbers.emplace(key, std::move(*expression));
+      }
+    }
+    else if (IsElementText(key))
+    {
+      if (std::optional<Template> text = r.OptionalTemplate(object, key, element_path))
+        element.props.emplace(key, std::move(*text));
+    }
+    else if (std::ranges::find(ELEMENT_STRUCTURE, key) == std::end(ELEMENT_STRUCTURE))
+    {
+      r.Error(element_path, fmt::format("unknown key \"{}\"", key));
+    }
+  }
+
+  if (const picojson::value* viewbox = r.Get(object, "viewbox"))
+  {
+    bool valid = viewbox->is<picojson::array>() && viewbox->get<picojson::array>().size() == 4;
+    if (valid)
+    {
+      for (const picojson::value& number : viewbox->get<picojson::array>())
+      {
+        valid = valid && number.is<double>();
+        if (number.is<double>())
+          element.viewbox.push_back(number.get<double>());
+      }
+    }
+    if (!valid)
+      r.Error(element_path, "\"viewbox\" must be [min_x, min_y, width, height]");
+  }
+
+  if (const picojson::value* children = r.Get(object, "elements"))
+    element.children = ParseElementList(r, *children, element_path, styles, depth + 1);
+
+  if (const picojson::array* layers = r.Array(object, "layers", element_path))
+  {
+    for (size_t i = 0; i < layers->size(); ++i)
+    {
+      const std::string layer_path = fmt::format("{} layer #{}", element_path, i + 1);
+      const picojson::object* layer_object = r.Object((*layers)[i], layer_path);
+      if (!layer_object)
+        continue;
+      r.CheckKeys(*layer_object, layer_path,
+                  {"source", "x", "y", "where", "fill", "stroke", "shape", "label", "size",
+                   "action"});
+      GridLayerSpec layer;
+      layer.source = r.String(*layer_object, "source", layer_path, false).value_or("");
+      const picojson::value* x = r.Get(*layer_object, "x");
+      const picojson::value* y = r.Get(*layer_object, "y");
+      if (!x || !y)
+      {
+        r.Error(layer_path, "needs \"x\" and \"y\"");
+        continue;
+      }
+      std::optional<Expression> x_expression = r.Expr(*x, layer_path, "\"x\"");
+      std::optional<Expression> y_expression = r.Expr(*y, layer_path, "\"y\"");
+      if (!x_expression || !y_expression)
+        continue;
+      layer.x = std::move(*x_expression);
+      layer.y = std::move(*y_expression);
+      layer.where = r.OptionalExpr(*layer_object, "where", layer_path);
+      layer.size = r.OptionalExpr(*layer_object, "size", layer_path);
+      for (const char* key : {"fill", "stroke", "shape", "label"})
+      {
+        if (std::optional<Template> text = r.OptionalTemplate(*layer_object, key, layer_path))
+          layer.props.emplace(key, std::move(*text));
+      }
+      layer.action = r.String(*layer_object, "action", layer_path, false).value_or("");
+      element.layers.push_back(std::move(layer));
+    }
+  }
+
+  const auto require = [&](std::initializer_list<std::string_view> keys) {
+    for (std::string_view key : keys)
+    {
+      if (!element.numbers.contains(key) && !element.props.contains(key))
+        r.Error(element_path, fmt::format("needs \"{}\"", key));
+    }
+  };
+  switch (element.type)
+  {
+  case ElementType::Rect:
+  case ElementType::Frame:
+    require({"x", "y", "w", "h"});
+    break;
+  case ElementType::Text:
+    require({"x", "y", "w", "h", "text"});
+    break;
+  case ElementType::Bar:
+    require({"x", "y", "w", "h", "value", "max"});
+    break;
+  case ElementType::Pips:
+    require({"x", "y", "w", "h", "count", "filled"});
+    break;
+  case ElementType::Image:
+    require({"x", "y", "w", "h", "src"});
+    break;
+  case ElementType::Path:
+    require({"x", "y", "w", "h", "d"});
+    if (element.viewbox.empty())
+      r.Error(element_path, "needs \"viewbox\"");
+    break;
+  case ElementType::Grid:
+    require({"x", "y", "w", "h", "cols", "rows"});
+    break;
+  case ElementType::Repeat:
+    if (element.source.empty())
+      r.Error(element_path, "needs a \"source\" array");
+    break;
+  case ElementType::Group:
+    break;
+  }
+  if ((element.type == ElementType::Repeat || element.type == ElementType::Group) &&
+      element.children.empty())
+  {
+    r.Error(element_path, "needs \"elements\"");
+  }
+  return element;
 }
 
 void ParseTargets(Reader& r, const picojson::object& root, Manifest& manifest)
@@ -882,6 +1172,53 @@ void Validate(Reader& r, Manifest& manifest)
     }
   }
 
+  std::set<std::string, std::less<>> layout_ids;
+  for (const LayoutSpec& layout : manifest.layouts)
+  {
+    if (!layout_ids.insert(layout.id).second)
+      r.Error("layouts", fmt::format("duplicate layout id \"{}\"", layout.id));
+  }
+
+  std::set<std::string, std::less<>> state_names;
+  for (const StateSpec& state : manifest.state)
+  {
+    if (value_names.contains(state.name))
+      r.Error("state", fmt::format("\"{}\" is also a value or array", state.name));
+    if (!state_names.insert(state.name).second)
+      r.Error("state", fmt::format("duplicate state \"{}\"", state.name));
+  }
+
+  std::function<void(std::string_view, const std::vector<ElementSpec>&)> check_elements =
+      [&](std::string_view where, const std::vector<ElementSpec>& elements) {
+        for (const ElementSpec& element : elements)
+        {
+          check_action(where, element.action);
+          if (!element.source.empty())
+            check_array(where, element.source);
+          for (const GridLayerSpec& layer : element.layers)
+          {
+            if (!layer.source.empty())
+              check_array(where, layer.source);
+            check_action(where, layer.action);
+          }
+          check_elements(where, element.children);
+        }
+      };
+  for (const LayoutSpec& layout : manifest.layouts)
+    check_elements(fmt::format("layout \"{}\"", layout.id), layout.elements);
+  for (const PageSpec& page : manifest.pages)
+  {
+    for (const auto& [layout, elements] : page.elements)
+    {
+      const std::string where = fmt::format("page \"{}\" layout \"{}\"", page.id, layout);
+      if (layout != "*" && !layout_ids.contains(layout))
+        r.Error(where, "names a layout that is not in \"layouts\"");
+      if (manifest.layouts.empty())
+        r.Error(where, "canvas elements need at least one entry in \"layouts\"");
+      check_elements(where, elements);
+    }
+  }
+
   for (ActionSpec& action : manifest.actions)
   {
     const std::string where = fmt::format("action \"{}\"", action.id);
@@ -907,8 +1244,10 @@ void Validate(Reader& r, Manifest& manifest)
           const FieldSpec* value = manifest.FindValue(step.target);
           if (!value)
             r.Error(where, fmt::format("writes to unknown value \"{}\"", step.target));
-          else if (value->computed || value->type == MemoryType::String)
-            r.Error(where, fmt::format("cannot write to \"{}\" (computed or string)", step.target));
+          else if (value->computed || value->type == MemoryType::String ||
+                   value->address_expression)
+            r.Error(where, fmt::format("cannot write to \"{}\" (computed, string or address_expr)",
+                                       step.target));
         }
         else
         {
@@ -921,7 +1260,8 @@ void Validate(Reader& r, Manifest& manifest)
           else if (field_it == array->fields.end())
             r.Error(where,
                     fmt::format("writes to unknown field \"{}.{}\"", step.target, step.field));
-          else if (field_it->computed || field_it->type == MemoryType::String)
+          else if (field_it->computed || field_it->type == MemoryType::String ||
+                   field_it->address_expression)
             r.Error(where, fmt::format("cannot write to \"{}.{}\" (computed or string)",
                                        step.target, step.field));
         }
@@ -930,6 +1270,10 @@ void Validate(Reader& r, Manifest& manifest)
       case ActionStep::Kind::Page:
         if (!page_ids.contains(step.page))
           r.Error(where, fmt::format("switches to unknown page \"{}\"", step.page));
+        break;
+      case ActionStep::Kind::Set:
+        if (!state_names.contains(step.target))
+          r.Error(where, fmt::format("sets unknown state \"{}\"", step.target));
         break;
       case ActionStep::Kind::Wait:
         break;
@@ -975,6 +1319,45 @@ bool Manifest::Targets(std::string_view game_id, u16 revision) const
   });
 }
 
+const std::vector<ElementSpec>* PageSpec::ElementsFor(std::string_view layout) const
+{
+  auto it = elements.find(layout);
+  if (it == elements.end())
+    it = elements.find("*");
+  return it == elements.end() ? nullptr : &it->second;
+}
+
+const LayoutSpec* Manifest::ChooseLayout(u32 screen_width, u32 screen_height) const
+{
+  if (layouts.empty())
+    return nullptr;
+  if (screen_width == 0 || screen_height == 0)
+    return &layouts.front();
+  // Compare shapes on a log scale so 4:3 vs 16:9 and 3:4 vs 9:16 weigh the same.
+  const double screen = std::log(static_cast<double>(screen_width) / screen_height);
+  const LayoutSpec* best = nullptr;
+  double best_distance = 0;
+  for (const LayoutSpec& layout : layouts)
+  {
+    if (layout.width == 0 || layout.height == 0)
+      continue;
+    const double distance =
+        std::abs(std::log(static_cast<double>(layout.width) / layout.height) - screen);
+    if (!best || distance < best_distance)
+    {
+      best = &layout;
+      best_distance = distance;
+    }
+  }
+  return best ? best : &layouts.front();
+}
+
+const LayoutSpec* Manifest::FindLayout(std::string_view layout_id) const
+{
+  const auto it = std::ranges::find(layouts, layout_id, &LayoutSpec::id);
+  return it == layouts.end() ? nullptr : &*it;
+}
+
 const ActionSpec* Manifest::FindAction(std::string_view action_id) const
 {
   const auto it = std::ranges::find(actions, action_id, &ActionSpec::id);
@@ -1012,7 +1395,8 @@ ManifestParseResult ParseManifest(std::string_view json)
 
   r.CheckKeys(*root, "manifest",
               {"format", "id", "name", "version", "author", "description", "targets", "controller",
-               "poll_hz", "capabilities", "values", "arrays", "tables", "pages", "actions"});
+               "poll_hz", "capabilities", "values", "arrays", "tables", "pages", "actions",
+               "theme", "layouts", "state"});
 
   Manifest manifest;
   const std::optional<u32> format = r.U32(*root, "format", "manifest", true);
@@ -1123,6 +1507,106 @@ ManifestParseResult ParseManifest(std::string_view json)
     }
   }
 
+  // Theme: named colours, fonts shipped in the package and element style presets.
+  std::map<std::string, picojson::object> styles;
+  if (const picojson::value* theme = r.Get(*root, "theme"))
+  {
+    if (const picojson::object* theme_object = r.Object(*theme, "theme"))
+    {
+      r.CheckKeys(*theme_object, "theme", {"colors", "fonts", "styles"});
+      const auto read_map = [&](const char* key, auto& out) {
+        const picojson::value* value = r.Get(*theme_object, key);
+        if (!value)
+          return;
+        const picojson::object* entries = r.Object(*value, fmt::format("theme.{}", key));
+        if (!entries)
+          return;
+        for (const auto& [name, text] : *entries)
+        {
+          if (!text.is<std::string>())
+            r.Error(fmt::format("theme.{}", key), fmt::format("\"{}\" must be a string", name));
+          else
+            out[name] = text.get<std::string>();
+        }
+      };
+      read_map("colors", manifest.theme.colors);
+      read_map("fonts", manifest.theme.fonts);
+      for (const auto& [name, file] : manifest.theme.fonts)
+      {
+        if (file.find("..") != std::string::npos || file.starts_with('/'))
+          r.Error("theme.fonts", fmt::format("\"{}\" must be a path inside the package", name));
+      }
+      if (const picojson::value* style_value = r.Get(*theme_object, "styles"))
+      {
+        if (const picojson::object* style_object = r.Object(*style_value, "theme.styles"))
+        {
+          for (const auto& [name, preset] : *style_object)
+          {
+            if (const picojson::object* preset_object =
+                    r.Object(preset, fmt::format("theme.styles.{}", name)))
+            {
+              styles[name] = *preset_object;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (const picojson::array* layouts = r.Array(*root, "layouts", "manifest"))
+  {
+    for (size_t i = 0; i < layouts->size(); ++i)
+    {
+      const std::string path = fmt::format("layout #{}", i + 1);
+      const picojson::object* object = r.Object((*layouts)[i], path);
+      if (!object)
+        continue;
+      r.CheckKeys(*object, path, {"id", "canvas", "background", "elements"});
+      LayoutSpec layout;
+      layout.id = r.String(*object, "id", path, true).value_or("");
+      if (!layout.id.empty() && !IsIdentifier(layout.id))
+        r.Error(path, fmt::format("\"{}\" is not a valid layout id", layout.id));
+      const std::string layout_path = fmt::format("layout \"{}\"", layout.id);
+      const picojson::array* canvas = r.Array(*object, "canvas", layout_path);
+      if (!canvas || canvas->size() != 2 || !(*canvas)[0].is<double>() ||
+          !(*canvas)[1].is<double>() || (*canvas)[0].get<double>() < 16 ||
+          (*canvas)[1].get<double>() < 16 || (*canvas)[0].get<double>() > 8192 ||
+          (*canvas)[1].get<double>() > 8192)
+      {
+        r.Error(layout_path, "needs \"canvas\": [width, height] (16-8192)");
+      }
+      else
+      {
+        layout.width = static_cast<u32>((*canvas)[0].get<double>());
+        layout.height = static_cast<u32>((*canvas)[1].get<double>());
+      }
+      layout.background = r.OptionalTemplate(*object, "background", layout_path);
+      if (const picojson::value* elements = r.Get(*object, "elements"))
+        layout.elements = ParseElementList(r, *elements, layout_path, styles, 0);
+      manifest.layouts.push_back(std::move(layout));
+    }
+  }
+
+  if (const picojson::value* state = r.Get(*root, "state"))
+  {
+    if (const picojson::object* state_object = r.Object(*state, "state"))
+    {
+      for (const auto& [name, initial] : *state_object)
+      {
+        if (!IsIdentifier(name) || IsReservedName(name))
+        {
+          r.Error("state", fmt::format("\"{}\" is not a valid name", name));
+          continue;
+        }
+        if (std::optional<Expression> expression =
+                r.Expr(initial, "state", fmt::format("\"{}\"", name)))
+        {
+          manifest.state.push_back({name, std::move(*expression)});
+        }
+      }
+    }
+  }
+
   if (const picojson::array* pages = r.Array(*root, "pages", "manifest"))
   {
     for (size_t i = 0; i < pages->size(); ++i)
@@ -1131,7 +1615,7 @@ ManifestParseResult ParseManifest(std::string_view json)
       const picojson::object* object = r.Object((*pages)[i], path);
       if (!object)
         continue;
-      r.CheckKeys(*object, path, {"id", "title", "visible_if", "widgets"});
+      r.CheckKeys(*object, path, {"id", "title", "visible_if", "widgets", "elements"});
       PageSpec page;
       page.id = r.String(*object, "id", path, true).value_or("");
       if (!page.id.empty() && !IsIdentifier(page.id))
@@ -1150,6 +1634,22 @@ ManifestParseResult ParseManifest(std::string_view json)
                   ParseWidget(r, (*widgets)[w], fmt::format("{} widget #{}", page_path, w + 1)))
           {
             page.widgets.push_back(std::move(*widget));
+          }
+        }
+      }
+      if (const picojson::value* elements = r.Get(*object, "elements"))
+      {
+        // Either one list for every layout, or {"layout id": [...], "*": [...]}.
+        if (elements->is<picojson::array>())
+        {
+          page.elements["*"] = ParseElementList(r, *elements, page_path, styles, 0);
+        }
+        else if (const picojson::object* per_layout = r.Object(*elements, page_path))
+        {
+          for (const auto& [layout_id, list] : *per_layout)
+          {
+            page.elements[layout_id] = ParseElementList(
+                r, list, fmt::format("{} layout \"{}\"", page_path, layout_id), styles, 0);
           }
         }
       }

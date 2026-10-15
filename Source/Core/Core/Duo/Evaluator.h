@@ -31,6 +31,11 @@ class value;
 
 namespace Duo
 {
+class Scope;
+}
+
+namespace Duo
+{
 struct SystemInfo
 {
   std::string game_id;
@@ -62,7 +67,15 @@ public:
 
   // Renders the page with the given id (or the first visible page) to the snapshot form the
   // Android companion screen draws. `page_id` is updated to the page actually rendered.
-  picojson::value Render(std::string& page_id) const;
+  // For a companion with canvas layouts, `layout_id` picks the layout (empty: the first one).
+  picojson::value Render(std::string& page_id, std::string_view layout_id = {}) const;
+
+  // UI state ("state" in the manifest), changed by "set" steps. Not game memory.
+  void SetState(std::string_view name, Value value);
+  Value GetState(std::string_view name) const;
+
+  // Evaluates an expression the way an action triggered from `row` of `row_array` sees it.
+  Value EvaluateForRow(const Expression& expression, std::string_view row_array, s64 row) const;
 
   // Performs a write step against the most recent sample. `row` is the list row an action was
   // triggered from, or -1. Returns an error message on failure.
@@ -99,6 +112,18 @@ private:
   const std::vector<ArrayElement>* EnsureArray(std::string_view name) const;
 
   picojson::value RenderWidget(const WidgetSpec& widget) const;
+
+  struct CanvasContext;
+  void RenderElements(const std::vector<ElementSpec>& elements, const Scope& scope, double origin_x,
+                      double origin_y, const std::string& row_array, s64 row,
+                      CanvasContext& context) const;
+  void RenderElement(const ElementSpec& element, const Scope& scope, double origin_x,
+                     double origin_y, const std::string& row_array, s64 row,
+                     CanvasContext& context) const;
+  std::string ResolveColor(const std::string& color) const;
+
+  std::map<std::string, Value, std::less<>> m_state;
+  mutable std::string m_layout;  // Layout being rendered, for $layout.
 
   const Manifest& m_manifest;
   TextDecoder m_decoder;

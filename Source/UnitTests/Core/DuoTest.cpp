@@ -552,3 +552,232 @@ TEST(DuoActionRunner, CancelReleasesHeldButton)
   EXPECT_EQ(input.log[1], "release 0 START");
   EXPECT_FALSE(runner.IsBusy());
 }
+
+// ---------------------------------------------------------------------------------------------
+// Canvas pages, UI state, computed addresses and the find()/countif() helpers.
+
+namespace
+{
+const char* const CANVAS_MANIFEST = R"json({
+  "format": 1, "id": "canvas-test", "name": "Canvas", "version": "1",
+  "targets": [{"game_id": "GCNE01"}],
+  "theme": {
+    "colors": {"gold": "#FFD700", "panel": "#102030"},
+    "fonts": {"ui": "fonts/ui.ttf"},
+    "styles": {"card": {"fill": "@panel", "edge": "@gold", "corner": "notch"}}
+  },
+  "layouts": [
+    {"id": "wide", "canvas": [1240, 1080], "background": "@panel",
+     "elements": [{"type": "text", "x": 0, "y": 0, "w": 100, "h": 20, "text": "Turn {turn}"}]},
+    {"id": "classic", "canvas": [1024, 768]}
+  ],
+  "state": {"sel": -1},
+  "values": [
+    {"name": "turn", "type": "u8", "address": "0x80001000"},
+    {"name": "table_ptr", "type": "u32", "address": "0x80001004"},
+    {"name": "via_expr", "type": "u16", "address_expr": "table_ptr + 0x10"},
+    {"name": "cx", "type": "u8", "address": "0x80001008"},
+    {"name": "cy", "type": "u8", "address": "0x80001009"},
+    {"name": "hover", "expr": "default(find(units, 'x', cx, 'y', cy), -1)"},
+    {"name": "focus", "expr": "sel >= 0 ? sel : hover"},
+    {"name": "enemies", "expr": "countif(units, 'army', 1)"}
+  ],
+  "arrays": [
+    {"name": "units", "address": "0x80002000", "stride": "0x10", "count": 4, "where": "hp > 0",
+     "fields": [
+       {"name": "hp", "type": "u8", "offset": "0x0"},
+       {"name": "army", "type": "u8", "offset": "0x1"},
+       {"name": "x", "type": "u8", "offset": "0x2"},
+       {"name": "y", "type": "u8", "offset": "0x3"},
+       {"name": "kind", "type": "u8", "offset": "0x4"},
+       {"name": "kind_name", "type": "string", "address_expr": "0x80003000 + kind * 8", "length": 8}
+     ]},
+    {"name": "cells", "address_expr": "table_ptr", "stride": "0x1", "count": 6,
+     "fields": [{"name": "t", "type": "u8", "offset": "0x0"}]}
+  ],
+  "tables": {"terrain": {"0": "#00FF00", "1": "@gold"}},
+  "pages": [
+    {"id": "battle", "title": "Battle", "elements": {
+      "wide": [
+        {"type": "frame", "style": "card", "x": 10, "y": 10, "w": 200, "h": 100, "edge": "#FF0000"},
+        {"type": "group", "x": 300, "y": 40, "elements": [
+          {"type": "rect", "x": 5, "y": 5, "w": 10, "h": 10, "fill": "@gold"}]},
+        {"type": "repeat", "source": "units", "where": "army == 0", "x": 20, "y": 200, "dy": 30,
+         "elements": [{"type": "text", "x": 0, "y": 0, "w": 100, "h": 30, "text": "{kind_name}",
+                       "action": "pick"}]},
+        {"type": "grid", "x": 0, "y": 400, "w": 300, "h": 200, "cols": 3, "rows": 2,
+         "source": "cells", "cell": "{table(terrain, t)}",
+         "layers": [{"source": "units", "x": "x", "y": "y", "fill": "{army == 1 ? '#FF0000' : '#0000FF'}"},
+                    {"x": "cx", "y": "cy", "shape": "cursor"}]},
+        {"type": "text", "x": 0, "y": 700, "w": 300, "h": 30,
+         "text": "Focus {focus} of {count(units)}, {enemies} enemy, layout {$layout}"}
+      ],
+      "*": [{"type": "text", "x": 0, "y": 0, "w": 50, "h": 20, "text": "small"}]
+    }}
+  ],
+  "actions": [{"id": "pick", "steps": [{"set": "sel", "value": "$index"}]}]
+})json";
+
+void FillCanvas(FakeMemory& memory)
+{
+  memory.Put8(0x80001000, 3);
+  memory.Put32(0x80001004, 0x80004000);
+  memory.Put16(0x80004010, 0x0102);  // via_expr
+  memory.Put8(0x80001008, 2);        // cursor on (2, 1)
+  memory.Put8(0x80001009, 1);
+  // Units: hp, army, x, y, kind
+  const u8 units[4][5] = {{10, 0, 0, 0, 1}, {0, 0, 1, 1, 0}, {7, 1, 2, 1, 2}, {5, 0, 1, 0, 0}};
+  for (u32 i = 0; i < 4; ++i)
+    for (u32 b = 0; b < 5; ++b)
+      memory.Put8(0x80002000 + i * 0x10 + b, units[i][b]);
+  memory.PutString(0x80003000, "Sword");
+  memory.PutString(0x80003008, "Lance");
+  memory.PutString(0x80003010, "Axe");
+  const u8 cells[6] = {0, 1, 0, 1, 1, 0};
+  for (u32 i = 0; i < 6; ++i)
+    memory.Put8(0x80004000 + i, cells[i]);
+}
+
+const picojson::object* FindElement(const picojson::array& elements, std::string_view type,
+                                    size_t nth = 0)
+{
+  for (const picojson::value& element : elements)
+  {
+    if (element.get("t").get<std::string>() == type && nth-- == 0)
+      return &element.get<picojson::object>();
+  }
+  return nullptr;
+}
+}  // namespace
+
+TEST(DuoCanvas, ChoosesLayoutByScreenShape)
+{
+  const Duo::Manifest manifest = ParseOrFail(CANVAS_MANIFEST);
+  EXPECT_EQ(manifest.ChooseLayout(1240, 1080)->id, "wide");  // AYN Thor bottom screen
+  EXPECT_EQ(manifest.ChooseLayout(640, 480)->id, "classic");
+  EXPECT_EQ(manifest.ChooseLayout(0, 0)->id, "wide");  // Unknown size: the first layout.
+}
+
+TEST(DuoCanvas, RendersPositionedThemedElements)
+{
+  const Duo::Manifest manifest = ParseOrFail(CANVAS_MANIFEST);
+  FakeMemory memory;
+  FillCanvas(memory);
+  Duo::Evaluator evaluator(manifest);
+  evaluator.Sample(memory, {});
+
+  EXPECT_EQ(evaluator.GetValue("via_expr"), Duo::Value(0x0102));
+  EXPECT_EQ(evaluator.GetValue("hover"), Duo::Value(1));  // units[1] after "where" is at (2, 1)
+  EXPECT_EQ(evaluator.GetValue("enemies"), Duo::Value(1));
+
+  std::string page;
+  const picojson::value snapshot = evaluator.Render(page, "wide");
+  const picojson::object& canvas = snapshot.get("canvas").get<picojson::object>();
+  EXPECT_EQ(canvas.at("layout").get<std::string>(), "wide");
+  EXPECT_EQ(canvas.at("background").get<std::string>(), "#102030");
+  EXPECT_EQ(canvas.at("fonts").get("ui").get<std::string>(), "fonts/ui.ttf");
+
+  const picojson::array& elements = snapshot.get("elements").get<picojson::array>();
+  // Layout chrome comes first.
+  EXPECT_EQ(elements[0].get("text").get<std::string>(), "Turn 3");
+
+  // The style supplies fill and corner; the element's own edge wins.
+  const picojson::object* frame = FindElement(elements, "frame");
+  ASSERT_NE(frame, nullptr);
+  EXPECT_EQ(frame->at("fill").get<std::string>(), "#102030");
+  EXPECT_EQ(frame->at("edge").get<std::string>(), "#FF0000");
+  EXPECT_EQ(frame->at("corner").get<std::string>(), "notch");
+
+  // Groups offset their children.
+  const picojson::object* rect = FindElement(elements, "rect");
+  ASSERT_NE(rect, nullptr);
+  EXPECT_DOUBLE_EQ(rect->at("x").get<double>(), 305);
+  EXPECT_DOUBLE_EQ(rect->at("y").get<double>(), 45);
+  EXPECT_EQ(rect->at("fill").get<std::string>(), "#FFD700");
+
+  // Repeat skips the enemy and packs the rest; names come from computed addresses.
+  const picojson::object* first = FindElement(elements, "text", 1);
+  const picojson::object* second = FindElement(elements, "text", 2);
+  ASSERT_NE(second, nullptr);
+  EXPECT_EQ(first->at("text").get<std::string>(), "Lance");
+  EXPECT_DOUBLE_EQ(first->at("y").get<double>(), 200);
+  EXPECT_EQ(second->at("text").get<std::string>(), "Sword");
+  EXPECT_DOUBLE_EQ(second->at("y").get<double>(), 230);
+  EXPECT_EQ(second->at("action").get<std::string>(), "pick");
+  EXPECT_EQ(second->at("source").get<std::string>(), "units");
+  EXPECT_DOUBLE_EQ(second->at("index").get<double>(), 2);
+
+  // The grid: palette indices per cell, unit marks and the cursor.
+  const picojson::object* grid = FindElement(elements, "grid");
+  ASSERT_NE(grid, nullptr);
+  const picojson::array& palette = grid->at("palette").get<picojson::array>();
+  ASSERT_EQ(palette.size(), 2u);
+  EXPECT_EQ(palette[0].get<std::string>(), "#00FF00");
+  EXPECT_EQ(palette[1].get<std::string>(), "#FFD700");
+  const picojson::array& cells = grid->at("cells").get<picojson::array>();
+  ASSERT_EQ(cells.size(), 6u);
+  EXPECT_DOUBLE_EQ(cells[1].get<double>(), 1);
+  const picojson::array& marks = grid->at("marks").get<picojson::array>();
+  ASSERT_EQ(marks.size(), 4u);  // Three living units and the cursor.
+  EXPECT_EQ(marks[1].get("fill").get<std::string>(), "#FF0000");
+  EXPECT_EQ(marks[3].get("shape").get<std::string>(), "cursor");
+
+  const picojson::object* summary = FindElement(elements, "text", 3);
+  EXPECT_EQ(summary->at("text").get<std::string>(), "Focus 1 of 3, 1 enemy, layout wide");
+
+  // A layout without its own elements uses the "*" list.
+  const picojson::value classic = evaluator.Render(page, "classic");
+  const picojson::array& classic_elements = classic.get("elements").get<picojson::array>();
+  ASSERT_EQ(classic_elements.size(), 1u);
+  EXPECT_EQ(classic_elements[0].get("text").get<std::string>(), "small");
+}
+
+TEST(DuoCanvas, SetStepChangesUiState)
+{
+  const Duo::Manifest manifest = ParseOrFail(CANVAS_MANIFEST);
+  FakeMemory memory;
+  FillCanvas(memory);
+  Duo::Evaluator evaluator(manifest);
+  evaluator.Sample(memory, {});
+  EXPECT_EQ(evaluator.GetState("sel"), Duo::Value(-1));
+
+  Duo::ActionRunner runner;
+  ASSERT_TRUE(runner.Enqueue({"pick", "units", 2}));
+  std::string page = "battle";
+  std::vector<std::string> messages;
+  runner.Step(manifest, evaluator, memory, nullptr, false, page, messages);
+  EXPECT_TRUE(messages.empty());
+  EXPECT_EQ(evaluator.GetState("sel"), Duo::Value(2));
+  EXPECT_TRUE(runner.TakeDirty());
+
+  evaluator.Sample(memory, {});
+  EXPECT_EQ(evaluator.GetValue("focus"), Duo::Value(2));
+}
+
+TEST(DuoCanvas, ReportsCanvasErrors)
+{
+  const Duo::ManifestParseResult result = Duo::ParseManifest(R"json({
+    "format": 1, "id": "bad", "name": "Bad", "version": "1", "targets": [{"game_id": "GCNE01"}],
+    "layouts": [{"id": "wide", "canvas": [8, 1080]}],
+    "state": {"sel": 0},
+    "pages": [{"id": "p", "title": "P", "elements": {"nope": [
+      {"type": "frame", "x": 0, "y": 0, "w": 1},
+      {"type": "sparkle"},
+      {"type": "text", "x": 0, "y": 0, "w": 1, "h": 1, "text": "x", "colour": "#fff"},
+      {"type": "rect", "style": "missing", "x": 0, "y": 0, "w": 1, "h": 1}
+    ]}}],
+    "actions": [{"id": "a", "steps": [{"set": "unknown", "value": 1}]}]
+  })json");
+  EXPECT_FALSE(result.manifest.has_value());
+  const auto has = [&](std::string_view needle) {
+    return std::ranges::any_of(result.errors,
+                               [&](const std::string& e) { return e.find(needle) != e.npos; });
+  };
+  EXPECT_TRUE(has("canvas"));
+  EXPECT_TRUE(has("needs \"h\""));
+  EXPECT_TRUE(has("unknown element type"));
+  EXPECT_TRUE(has("unknown key \"colour\""));
+  EXPECT_TRUE(has("unknown style \"missing\""));
+  EXPECT_TRUE(has("names a layout that is not in \"layouts\""));
+  EXPECT_TRUE(has("sets unknown state \"unknown\""));
+}

@@ -59,6 +59,8 @@ public:
   std::optional<std::pair<u64, std::string>> GetSnapshot(u64 after) const;
 
   void SetPage(std::string page);
+  // Size of the companion screen in pixels, used to pick the closest canvas layout.
+  void SetViewport(u32 width, u32 height);
   void TriggerAction(ActionRequest request);
   void SelectCompanion(std::string companion_id);
   void RequestReload();
@@ -93,6 +95,7 @@ private:
     std::optional<std::string> page;
     std::vector<ActionRequest> actions;
     std::optional<std::string> select;
+    std::optional<std::pair<u32, u32>> viewport;
     bool reload = false;
   };
 
@@ -115,6 +118,8 @@ private:
   std::vector<std::pair<u64, std::string>> m_notices;  // (expiry frame, text)
   ActionRunner m_runner;
   std::string m_page;
+  u32 m_viewport_width = 0;
+  u32 m_viewport_height = 0;
   u64 m_frame = 0;
   u64 m_next_sample_frame = 0;
   std::unique_ptr<InputSink> m_input;
