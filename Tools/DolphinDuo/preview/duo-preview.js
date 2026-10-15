@@ -278,10 +278,13 @@
     },
 
     image(ctx, e, info, assets) {
-      const img = assets.images[e.src];
+      const img = assets.images[e.src] || (e.fallback && assets.images[e.fallback]);
       if (!img) return;
       const r = box(e);
       const tint = col(e, 'tint');
+      const blend = { screen: 'screen', add: 'lighter', multiply: 'multiply' }[e.blend];
+      ctx.save();
+      if (blend) ctx.globalCompositeOperation = blend;
       let target = ctx, dx = r.x, dy = r.y, off = null;
       if (tint) {
         off = document.createElement('canvas');
@@ -303,6 +306,7 @@
         target.fillStyle = tint; target.fillRect(0, 0, off.width, off.height);
         ctx.drawImage(off, r.x, r.y, r.w, r.h);
       }
+      ctx.restore();
     },
 
     path(ctx, e) {
@@ -337,6 +341,20 @@
           ctx.fillStyle = colors[index];
           ctx.fillRect(left + (i % cols) * cell, top + Math.floor(i / cols) * cell, cell + 0.5, cell + 0.5);
         }
+        const bevel = Math.min(1, Math.max(0, num(e, 'bevel', 0)));
+        if (bevel > 0) {
+          const edge = Math.max(1, cell * 0.09);
+          const light = `rgba(255,255,240,${(bevel * 90) / 255})`, dark = `rgba(0,0,0,${(bevel * 110) / 255})`;
+          for (let i = 0; i < Math.min(e.cells.length, cols * rows); i++) {
+            const index = e.cells[i];
+            if (index < 0 || index >= colors.length) continue;
+            const x = left + (i % cols) * cell, y = top + Math.floor(i / cols) * cell;
+            ctx.fillStyle = light;
+            ctx.fillRect(x, y, cell, edge); ctx.fillRect(x, y + edge, edge, cell - edge);
+            ctx.fillStyle = dark;
+            ctx.fillRect(x, y + cell - edge, cell, edge); ctx.fillRect(x + cell - edge, y, edge, cell - edge);
+          }
+        }
       }
       const gc = col(e, 'grid_color');
       if (gc) {
@@ -361,6 +379,32 @@
           if (ms) { ctx.strokeStyle = ms; ctx.stroke(); }
         } else if (shape === 'ring') {
           ctx.beginPath(); ctx.arc(cx, cy, half, 0, Math.PI * 2); ctx.strokeStyle = ms || mf || '#fff'; ctx.stroke();
+        } else if (shape === 'token') {
+          ctx.fillStyle = 'rgba(0,0,0,0.43)';
+          ctx.beginPath(); ctx.arc(cx, cy + half * 0.18, half, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(cx, cy, half, 0, Math.PI * 2);
+          if (mf) { ctx.fillStyle = mf; ctx.fill(); }
+          ctx.strokeStyle = ms || '#1A1206'; ctx.lineWidth = Math.max(1.5, cell * 0.09); ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,0.47)';
+          ctx.beginPath(); ctx.arc(cx - half * 0.3, cy - half * 0.32, half * 0.32, 0, Math.PI * 2); ctx.fill();
+        } else if (shape === 'tree' || shape === 'peak') {
+          const pts = shape === 'tree'
+            ? [[0, -1], [0.75, 0.45], [0.15, 0.45], [0.15, 1], [-0.15, 1], [-0.15, 0.45], [-0.75, 0.45]]
+            : [[-1, 0.6], [-0.2, -0.75], [0.12, -0.15], [0.42, -0.5], [1, 0.6]];
+          ctx.beginPath();
+          pts.forEach(([px, py], k) => (k ? ctx.lineTo : ctx.moveTo).call(ctx, cx + px * half, cy + py * half));
+          ctx.closePath();
+          if (mf) { ctx.fillStyle = mf; ctx.fill(); }
+          if (ms) { ctx.strokeStyle = ms; ctx.stroke(); }
+        } else if (shape === 'wave') {
+          ctx.strokeStyle = ms || mf || '#fff'; ctx.lineWidth = Math.max(1, cell * 0.07); ctx.lineCap = 'round';
+          for (const row of [-0.3, 0.3]) {
+            const y = cy + half * row;
+            ctx.beginPath(); ctx.moveTo(cx - half * 0.8, y);
+            ctx.quadraticCurveTo(cx - half * 0.4, y - half * 0.3, cx, y);
+            ctx.quadraticCurveTo(cx + half * 0.4, y + half * 0.3, cx + half * 0.8, y);
+            ctx.stroke();
+          }
         } else if (shape === 'cursor') {
           ctx.strokeStyle = ms || mf || '#fff'; ctx.lineWidth = Math.max(2, cell * 0.12);
           const arm = half * 0.55;
@@ -400,7 +444,8 @@
         console.warn('font failed', name, file, err);
       }
     }
-    const sources = new Set((snapshot.elements || []).filter((e) => e.t === 'image' && e.src).map((e) => e.src));
+    const sources = new Set((snapshot.elements || []).filter((e) => e.t === 'image')
+      .flatMap((e) => [e.src, e.fallback]).filter(Boolean));
     await Promise.all([...sources].map((src) => new Promise((resolve) => {
       const img = new Image();
       img.onload = () => { assets.images[src] = img; resolve(); };

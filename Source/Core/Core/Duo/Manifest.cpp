@@ -846,7 +846,7 @@ constexpr std::string_view ELEMENT_NUMBERS[] = {
     "rows",      "view_cols",  "view_rows",  "center_x", "center_y",     "line_height",
     "trim_width", "inset",     "corner_size", "gap",     "outline_width", "shadow_dx",
     "shadow_dy", "min_size",   "fit",        "rotate",   "letter_spacing", "grid_width",
-    "slice_scale", "flip_x",
+    "slice_scale", "flip_x",   "bevel",
 };
 
 // Text element properties, parsed as templates.
@@ -854,7 +854,7 @@ constexpr std::string_view ELEMENT_TEXTS[] = {
     "text",   "fill",   "fill2",  "stroke", "color",  "font",    "align", "valign",
     "src",    "d",      "shape",  "corner", "trim",   "edge",    "track", "track2",
     "off",    "shadow", "outline", "cell",  "weight", "tint",    "grid_color", "glow",
-    "fill_angle", "case",
+    "fill_angle", "case",  "fallback", "blend",
 };
 
 constexpr std::string_view ELEMENT_STRUCTURE[] = {"type",    "visible_if", "action", "source",

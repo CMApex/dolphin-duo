@@ -196,7 +196,8 @@ struct GridLayerSpec
   Expression x;  // Column, in cells.
   Expression y;  // Row, in cells.
   std::optional<Expression> where;
-  // Rendered per mark: fill, stroke, shape (dot, square, diamond, ring, cursor), label.
+  // Rendered per mark: fill, stroke, shape (dot, square, diamond, ring, cursor, token, tree, peak,
+  // wave), label.
   std::map<std::string, Template, std::less<>> props;
   std::optional<Expression> size;  // Mark size as a fraction of a cell, default 0.8.
   std::string action;

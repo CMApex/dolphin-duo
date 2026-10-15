@@ -81,7 +81,8 @@ std::optional<DiscImageRef> ParseDiscImageRef(std::string_view source)
   {
     ref.member = source.substr(arrow + 1);
     source = source.substr(0, arrow);
-    if (!IsSafeDiscPath(ref.member) || ref.member.find('/') != std::string::npos)
+    // Members are only looked up by name inside the archive; some have folder-like names.
+    if (!IsSafeDiscPath(ref.member))
       return std::nullopt;
   }
   ref.file = source;

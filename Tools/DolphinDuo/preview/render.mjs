@@ -43,7 +43,10 @@ await page.addScriptTag({ content: script });
 // Pages opened from setContent cannot read file:// URLs, so inline fonts and images.
 const directory = snapshot.companion && snapshot.companion.directory;
 const wanted = new Set(Object.values(snapshot.canvas.fonts || {}));
-for (const e of snapshot.elements || []) if (e.t === 'image' && e.src) wanted.add(e.src);
+for (const e of snapshot.elements || []) {
+  if (e.t !== 'image') continue;
+  for (const src of [e.src, e.fallback]) if (src) wanted.add(src);
+}
 const types = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
 const inlined = {};
 const discImages = snapshot.disc_images || {};

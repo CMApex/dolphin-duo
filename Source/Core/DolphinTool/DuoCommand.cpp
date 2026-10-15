@@ -404,20 +404,27 @@ int Preview(const std::vector<std::string>& args)
       picojson::object images;
       for (const picojson::value& element : snapshot.get("elements").get<picojson::array>())
       {
-        if (!element.contains("src") || !element.get("src").is<std::string>())
-          continue;
-        const std::string& src = element.get("src").get<std::string>();
-        if (!src.starts_with("disc:") || images.contains(src))
-          continue;
-        std::string error;
-        if (const std::optional<std::string> png =
-                Duo::MaterializeDiscImage(options["disc"], cache, src, &error))
+        for (const char* key : {"src", "fallback"})
         {
-          images[src] = picojson::value(*png);
-        }
-        else
-        {
-          fmt::print(std::cerr, "Warning: {}\n", error);
+          if (!element.contains(key) || !element.get(key).is<std::string>())
+            continue;
+          const std::string& src = element.get(key).get<std::string>();
+          if (!src.starts_with("disc:") || images.contains(src))
+            continue;
+          std::string error;
+          if (const std::optional<std::string> png =
+                  Duo::MaterializeDiscImage(options["disc"], cache, src, &error))
+          {
+            images[src] = picojson::value(*png);
+          }
+          else if (std::string_view(key) == "src" && element.contains("fallback"))
+          {
+            continue;  // The fallback covers it.
+          }
+          else
+          {
+            fmt::print(std::cerr, "Warning: {}\n", error);
+          }
         }
       }
       snapshot.get<picojson::object>()["disc_images"] = picojson::value(std::move(images));

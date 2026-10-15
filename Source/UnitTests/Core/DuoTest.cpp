@@ -802,6 +802,14 @@ TEST(DuoDiscAssets, ParsesReferences)
   EXPECT_EQ(member->member, "texpack.tpl");
   EXPECT_EQ(member->index, 0u);
 
+  // Some members have folder-like names.
+  const std::optional<Duo::DiscImageRef> nested =
+      Duo::ParseDiscImageRef("disc:title.cmp>window/title.tpl#2");
+  ASSERT_TRUE(nested.has_value());
+  EXPECT_EQ(nested->member, "window/title.tpl");
+  EXPECT_EQ(nested->index, 2u);
+  EXPECT_FALSE(Duo::ParseDiscImageRef("disc:title.cmp>../x.tpl").has_value());
+
   EXPECT_FALSE(Duo::ParseDiscImageRef("images/a.png").has_value());
   EXPECT_FALSE(Duo::ParseDiscImageRef("disc:../secret.tpl").has_value());
   EXPECT_FALSE(Duo::ParseDiscImageRef("disc:/abs.tpl").has_value());

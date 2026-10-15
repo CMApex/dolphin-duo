@@ -12,6 +12,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -48,7 +49,8 @@ class DuoCanvasRenderer {
 
     private val typefaces = HashMap<String, Typeface>()
     private val bitmaps = HashMap<String, Bitmap?>()
-    private val discFailures = HashMap<String, Long>()
+    // Disc images that could not be read: when, and how many times in a row.
+    private val discFailures = HashMap<String, Pair<Long, Int>>()
     private val pending = HashSet<String>()
     private var directoryGeneration = 0
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -300,9 +302,20 @@ class DuoCanvasRenderer {
     }
 
     private fun drawImage(c: Canvas, e: JSONObject) {
-        val bitmap = loadBitmap(e.optString("src")) ?: return
+        val src = e.optString("src")
+        // "fallback" is drawn instead when "src" can't be loaded (e.g. an image a disc lacks).
+        val bitmap = loadBitmap(src)
+            ?: e.optStringOrNull("fallback")?.takeIf { hasFailed(src) }?.let { loadBitmap(it) }
+            ?: return
         val tint = color(e, "tint")
         bitmapPaint.colorFilter = tint?.let { PorterDuffColorFilter(it, PorterDuff.Mode.SRC_IN) }
+        // "screen"/"add" drop a black background (art the game composites additively).
+        bitmapPaint.xfermode = when (e.optString("blend")) {
+            "screen" -> PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+            "add" -> PorterDuffXfermode(PorterDuff.Mode.ADD)
+            "multiply" -> PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
+            else -> null
+        }
         val r = box(e)
         val flip = e.num("flip_x", 0f) != 0f
         if (flip) {
@@ -340,6 +353,7 @@ class DuoCanvasRenderer {
         }
         if (flip) c.restore()
         bitmapPaint.colorFilter = null
+        bitmapPaint.xfermode = null
     }
 
     private val srcRect = android.graphics.Rect()
@@ -416,6 +430,24 @@ class DuoCanvasRenderer {
                 val y = top + (i / cols) * cell
                 c.drawRect(x, y, x + cell + 0.5f, y + cell + 0.5f, fill)
             }
+            // Relief: a light top-left edge and a dark bottom-right one per tile, like a board.
+            val bevel = e.num("bevel", 0f).coerceIn(0f, 1f)
+            if (bevel > 0f) {
+                val edge = max(1f, cell * 0.09f)
+                val light = Color.argb((bevel * 90).toInt(), 255, 255, 240)
+                val dark = Color.argb((bevel * 110).toInt(), 0, 0, 0)
+                for (i in 0 until min(cells.length(), cols * rows)) {
+                    if (cells.optInt(i, -1) !in colors.indices) continue
+                    val x = left + (i % cols) * cell
+                    val y = top + (i / cols) * cell
+                    fill.color = light
+                    c.drawRect(x, y, x + cell, y + edge, fill)
+                    c.drawRect(x, y + edge, x + edge, y + cell, fill)
+                    fill.color = dark
+                    c.drawRect(x, y + cell - edge, x + cell, y + cell, fill)
+                    c.drawRect(x + cell - edge, y, x + cell, y + cell - edge, fill)
+                }
+            }
         }
         color(e, "grid_color")?.let {
             stroke.color = it
@@ -446,6 +478,54 @@ class DuoCanvasRenderer {
                 "ring" -> {
                     stroke.color = markStroke ?: markFill ?: Color.WHITE
                     c.drawCircle(cx, cy, half, stroke)
+                }
+                "token" -> {
+                    // A unit token: drop shadow, coloured disc, dark rim and a glint.
+                    fill.color = Color.argb(110, 0, 0, 0)
+                    c.drawCircle(cx, cy + half * 0.18f, half, fill)
+                    markFill?.let { fill.color = it; c.drawCircle(cx, cy, half, fill) }
+                    stroke.color = markStroke ?: Color.rgb(26, 18, 6)
+                    stroke.strokeWidth = max(1.5f, cell * 0.09f)
+                    c.drawCircle(cx, cy, half, stroke)
+                    fill.color = Color.argb(120, 255, 255, 255)
+                    c.drawCircle(cx - half * 0.3f, cy - half * 0.32f, half * 0.32f, fill)
+                }
+                "tree", "peak", "wave" -> {
+                    val glyph = Path()
+                    val shape = m.optString("shape")
+                    if (shape == "tree") {
+                        glyph.moveTo(cx, cy - half)
+                        glyph.lineTo(cx + half * 0.75f, cy + half * 0.45f)
+                        glyph.lineTo(cx + half * 0.15f, cy + half * 0.45f)
+                        glyph.lineTo(cx + half * 0.15f, cy + half)
+                        glyph.lineTo(cx - half * 0.15f, cy + half)
+                        glyph.lineTo(cx - half * 0.15f, cy + half * 0.45f)
+                        glyph.lineTo(cx - half * 0.75f, cy + half * 0.45f)
+                        glyph.close()
+                    } else if (shape == "peak") {
+                        glyph.moveTo(cx - half, cy + half * 0.6f)
+                        glyph.lineTo(cx - half * 0.2f, cy - half * 0.75f)
+                        glyph.lineTo(cx + half * 0.12f, cy - half * 0.15f)
+                        glyph.lineTo(cx + half * 0.42f, cy - half * 0.5f)
+                        glyph.lineTo(cx + half, cy + half * 0.6f)
+                        glyph.close()
+                    }
+                    if (shape == "wave") {
+                        stroke.color = markStroke ?: markFill ?: Color.WHITE
+                        stroke.strokeWidth = max(1f, cell * 0.07f)
+                        stroke.strokeCap = Paint.Cap.ROUND
+                        for (row in listOf(-0.3f, 0.3f)) {
+                            val y = cy + half * row
+                            val wave = Path()
+                            wave.moveTo(cx - half * 0.8f, y)
+                            wave.quadTo(cx - half * 0.4f, y - half * 0.3f, cx, y)
+                            wave.quadTo(cx + half * 0.4f, y + half * 0.3f, cx + half * 0.8f, y)
+                            c.drawPath(wave, stroke)
+                        }
+                    } else {
+                        markFill?.let { fill.color = it; c.drawPath(glyph, fill) }
+                        markStroke?.let { stroke.color = it; c.drawPath(glyph, stroke) }
+                    }
                 }
                 "cursor" -> {
                     // Four corner brackets around the cell, like the in-game map cursor.
@@ -565,7 +645,10 @@ class DuoCanvasRenderer {
         // when the image arrives. A miss (no game yet, unreadable disc) is retried after a pause.
         val now = android.os.SystemClock.uptimeMillis()
         if (relativePath in pending) return null
-        if (now - (discFailures[relativePath] ?: Long.MIN_VALUE / 2) < 2000) return null
+        discFailures[relativePath]?.let { (time, count) ->
+            // Back off from 2 s up to a minute: some images simply aren't on the disc.
+            if (now - time < min(60_000L, 2000L shl min(count - 1, 5))) return null
+        }
         pending.add(relativePath)
         val generation = directoryGeneration
         discLoader.execute {
@@ -578,12 +661,16 @@ class DuoCanvasRenderer {
                     bitmaps[relativePath] = bitmap
                     onAssetLoaded?.invoke()
                 } else {
-                    discFailures[relativePath] = android.os.SystemClock.uptimeMillis()
+                    val count = (discFailures[relativePath]?.second ?: 0) + 1
+                    discFailures[relativePath] = android.os.SystemClock.uptimeMillis() to count
                 }
             }
         }
         return null
     }
+
+    private fun hasFailed(path: String): Boolean =
+        if (path.startsWith("disc:")) path in discFailures else bitmaps.containsKey(path) && bitmaps[path] == null
 
     private fun decodeBitmap(file: File): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
