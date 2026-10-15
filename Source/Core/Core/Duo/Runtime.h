@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -20,6 +21,7 @@
 
 #include "Common/CommonTypes.h"
 #include "Core/Duo/ActionRunner.h"
+#include "Core/Duo/DiscAssets.h"
 #include "Core/Duo/Evaluator.h"
 #include "Core/Duo/Manifest.h"
 
@@ -104,7 +106,15 @@ private:
     bool reload = false;
   };
 
+  struct TableLoad
+  {
+    TextTables tables;
+    std::vector<std::string> errors;
+  };
+
   void LoadForGame(const std::string& game_id, u16 revision);
+  // Creates the evaluator once the companion's text tables are in (see m_table_load).
+  void FinishLoading();
   void Unload();
   void Publish();
   std::string SelectedCompanionFor(const std::string& game_id) const;
@@ -123,6 +133,10 @@ private:
   std::vector<std::pair<u64, std::string>> m_notices;  // (expiry frame, text)
   ActionRunner m_runner;
   std::string m_page;
+  // Text tables being read from the disc on a worker thread, so a companion loading mid-game
+  // does not stall emulation while the disc is opened and the message file decompressed. The
+  // companion samples nothing until they arrive.
+  std::future<TableLoad> m_table_load;
   // The running game's disc, copied when it loads (under m_mutex) so other threads never read
   // SConfig while a new game boots.
   std::string m_disc_path;

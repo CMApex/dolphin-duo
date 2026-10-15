@@ -290,8 +290,9 @@ ParseMessageTable(std::span<const u8> data, bool shift_jis)
   return messages;
 }
 
-void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::string_view game_id,
-                    std::vector<std::string>* errors)
+TextTables ReadDiscTables(const std::map<std::string, std::string, std::less<>>& sources,
+                          const std::string& disc_path, std::string_view game_id,
+                          std::vector<std::string>* errors)
 {
   const auto report = [&](std::string message) {
     if (errors)
@@ -299,7 +300,8 @@ void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::strin
   };
   // Japanese releases (game ID ending in J) store their text in Shift-JIS.
   const bool shift_jis = game_id.size() >= 4 && game_id[3] == 'J';
-  for (const auto& [name, source] : manifest.disc_tables)
+  TextTables tables;
+  for (const auto& [name, source] : sources)
   {
     if (disc_path.empty())
     {
@@ -319,10 +321,27 @@ void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::strin
       report(fmt::format("table \"{}\": {} is not a message table", name, source));
       continue;
     }
-    auto& table = manifest.tables[name];
+    auto& table = tables[name];
     for (auto& [key, text] : *messages)
       table.insert_or_assign(key, std::move(text));
   }
+  return tables;
+}
+
+void InstallTextTables(Manifest& manifest, TextTables tables)
+{
+  for (auto& [name, entries] : tables)
+  {
+    auto& table = manifest.tables[name];
+    for (auto& [key, text] : entries)
+      table.insert_or_assign(key, std::move(text));
+  }
+}
+
+void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::string_view game_id,
+                    std::vector<std::string>* errors)
+{
+  InstallTextTables(manifest, ReadDiscTables(manifest.disc_tables, disc_path, game_id, errors));
 }
 
 namespace

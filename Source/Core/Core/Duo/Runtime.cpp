@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <sstream>
@@ -382,6 +383,10 @@ std::string Runtime::SelectedCompanionFor(const std::string& game_id) const
 
 void Runtime::Unload()
 {
+  // Waits for a table read still in flight; it only reads the disc, so this is short.
+  if (m_table_load.valid())
+    m_table_load.wait();
+  m_table_load = {};
   m_runner.Cancel(m_input.get(), m_loaded ? m_loaded->manifest->controller : 0);
   m_loaded.reset();
   m_errors.clear();
@@ -506,13 +511,38 @@ void Runtime::LoadForGame(const std::string& game_id, u16 revision)
 
   if (m_loaded)
   {
+    m_page = m_loaded->manifest->pages.empty() ? std::string() : m_loaded->manifest->pages[0].id;
     // Text such as character and item names comes from the disc, not the companion package.
     if (!m_loaded->is_inspector && !m_loaded->manifest->disc_tables.empty())
-      LoadDiscTables(*m_loaded->manifest, m_disc_path, game_id, &m_errors);
-    m_loaded->evaluator = std::make_unique<Evaluator>(*m_loaded->manifest, DecodeGameText);
-    m_page = m_loaded->manifest->pages.empty() ? std::string() : m_loaded->manifest->pages[0].id;
+    {
+      auto read = [sources = m_loaded->manifest->disc_tables, disc_path = m_disc_path,
+                   game_id]() {
+        TableLoad load;
+        load.tables = ReadDiscTables(sources, disc_path, game_id, &load.errors);
+        return load;
+      };
+      m_table_load = std::async(std::launch::async, std::move(read));
+      m_status = "loading";
+      m_message = "Reading the game's text from the disc…";
+    }
+    if (!m_table_load.valid())
+      FinishLoading();
   }
   m_next_sample_frame = m_frame;
+}
+
+void Runtime::FinishLoading()
+{
+  if (m_table_load.valid())
+  {
+    TableLoad load = m_table_load.get();
+    InstallTextTables(*m_loaded->manifest, std::move(load.tables));
+    for (std::string& error : load.errors)
+      m_errors.push_back(std::move(error));
+    m_status = "active";
+    m_message.clear();
+  }
+  m_loaded->evaluator = std::make_unique<Evaluator>(*m_loaded->manifest, DecodeGameText);
 }
 
 void Runtime::OnFrameEnd(const Core::CPUThreadGuard& guard)
@@ -564,6 +594,16 @@ void Runtime::OnFrameEnd(const Core::CPUThreadGuard& guard)
   }
   if (!m_loaded)
     return;
+  if (!m_loaded->evaluator)
+  {
+    if (m_table_load.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    {
+      if (m_status == "loading" && m_frame == m_next_sample_frame)
+        Publish();  // Once, so the screen says what it is waiting for.
+      return;
+    }
+    FinishLoading();
+  }
 
   DolphinMemory memory(guard);
   bool render_now = false;

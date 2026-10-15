@@ -71,8 +71,19 @@ std::optional<std::string> MaterializeDiscImage(const std::string& disc_path,
                                                 std::string_view source, std::string* error);
 struct Manifest;
 
-// Fills the manifest's disc-backed tables ("tables": {"msg": "disc:Mess/common.m"}) from the disc.
-// Problems are appended to `errors`; tables that fail stay empty.
+using TextTables = std::map<std::string, std::map<std::string, std::string>, std::less<>>;
+
+// Reads disc-backed tables ("tables": {"msg": "disc:Mess/common.m"}, given here as name -> file)
+// from the disc. Problems are appended to `errors`; tables that fail are left out. Touches no
+// emulator state, so it can run on a worker thread.
+TextTables ReadDiscTables(const std::map<std::string, std::string, std::less<>>& sources,
+                          const std::string& disc_path, std::string_view game_id,
+                          std::vector<std::string>* errors);
+
+// Merges `tables` into the manifest's tables.
+void InstallTextTables(Manifest& manifest, TextTables tables);
+
+// ReadDiscTables + InstallTextTables, for tools.
 void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::string_view game_id,
                     std::vector<std::string>* errors);
 }  // namespace Duo
