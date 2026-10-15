@@ -1,0 +1,69 @@
+# Fire Emblem: Path of Radiance companion
+
+A Dolphin Duo companion for **Fire Emblem: Path of Radiance** (NTSC-U, `GFEE01`, revision 0),
+drawn in the game's own visual language: navy "Personal Data" windows with gold labels, parchment
+plates, maroon name plates, the green-and-gold chapter banner and the corner-bracket map cursor.
+
+| Page | Shows |
+|---|---|
+| **Battle** | Chapter title and victory condition, turn and phase, a live minimap (terrain, units by army, the cursor), the unit under the cursor or the one you tapped, its items, the terrain under the cursor and army counts. |
+| **Army** | Your units and the enemy's, with class, level and HP. Tap a row for its status. |
+| **Status** | The selected unit in full: stats with gauges against the class maximums, items with uses and weapon numbers. |
+
+It has two layouts: `thor` (1240x1080, the AYN Thor's bottom screen) and `classic` (4:3, e.g.
+1024x768). Dolphin Duo picks the closer one for your screen.
+
+It only reads memory: no button presses, no memory writes.
+
+## Install
+
+Zip this folder (or just `manifest.json` plus `fonts/`) and install it from
+**Settings → Interface → Dolphin Duo → Manage Companions**, or copy the folder to
+`<Dolphin user folder>/Duo/Companions/fe9-path-of-radiance/`.
+
+## Rebuilding
+
+```sh
+python3 tools/extract_text.py --dolphin-tool path/to/dolphin-tool --disc "Fire Emblem - Path of Radiance (USA).rvz"
+python3 generate.py
+dolphin-tool duo validate .
+```
+
+`text.json` holds the names the companion shows (characters, classes, items, terrain, chapter titles,
+victory conditions), read from the disc's `Mess/common.m`. `generate.py` builds `manifest.json`; edit
+the generator, not the manifest.
+
+To see a page without a device, dump MEM1 from Dolphin's memory view (or with the headless harness
+in `Tools/DolphinDuo/headless`) and render it:
+
+```sh
+dolphin-tool duo preview . --mem1 mem1.raw --screen 1240x1080 --page battle --json > snap.json
+node ../../Tools/DolphinDuo/preview/render.mjs snap.json battle.png
+```
+
+## Memory map
+
+The top of `generate.py` documents every address. In short:
+
+* **Units** are 0x280-byte records from `0x802B14F8`. Each points to its character record and its
+  class record. Displayed stats are *class base + character modifier + gains*: the unit record only
+  stores what the unit gained. This was checked against the in-game status screen for Ike (Ranger)
+  and Boyd (Fighter).
+* **Army** comes from the list the unit belongs to (`+0x17C` → `+0x08`: 0 player, 1 enemy, 2 other).
+* **Turn, phase, gold and the victory condition** live at `0x80330719`–`0x8033072F`.
+* **The cursor** is two floats in tile units at `0x8032B238`.
+* **Terrain** is read from the chapter's `map.bin`, which the game keeps in RAM with its symbol
+  table: `panelindex` (one u16 per tile) indexes `uniquepanel`, whose entries point to the terrain
+  name. The companion finds both symbols by name, so it works on every chapter's map.
+
+## Not yet
+
+* Units that have already acted are not greyed out (the flag is not in the unit record).
+* Battle forecast, skills, weapon ranks, supports and the biorhythm are not mapped yet.
+* Portraits and item icons from the disc (Eden Duo-style `disc:` assets) need texture decoding in
+  Dolphin Duo first; the weapon glyphs here are drawn from SVG paths.
+
+## Credits
+
+Fonts: [Marcellus](https://fonts.google.com/specimen/Marcellus) and
+[Cinzel](https://fonts.google.com/specimen/Cinzel), SIL Open Font License (see `fonts/`).

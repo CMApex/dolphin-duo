@@ -14,7 +14,8 @@ Memory map (NTSC-U GFEE01, rev 0), found with the headless harness (Tools/Dolphi
     +0x186 level  +0x187 EXP  +0x18A x  +0x18B y  +0x194 HP  +0x196 move bonus
     +0x197..0x19E HP..Res gains   +0x1B8 + k*8 items (u32 item record, u8 uses)
     Displayed stat = class base + character modifier + gain (checked on the status screen).
-  Item record   +0x00 IID  +0x04 MIID name  +0x18 max uses  +0x19 might  +0x1B weight
+  Item record   +0x00 IID  +0x04 MIID name  +0x18 max uses  +0x19 might  +0x1A hit  +0x1B weight
+                +0x1C crit  +0x1D/+0x1E range (might checked: Ike Atk 11 = Str 5 + Trainer 6)
   Chapter state 0x80330719 phase, 0x8033071A turn (u16), 0x80330720 gold, 0x80330728 victory key
   Cursor        0x8032B238 / 0x8032B23C (f32 tile x / y)
   Map           0x802EFE60 width, +2 height, +0x0C -> map.bin data, +0x3C map name ("bmap01")
@@ -195,6 +196,8 @@ def unit_fields():
         add({'name': f'miid{k}', 'type': 'string', 'offset': hex(base), 'offsets': ['0x4', '0x0'], 'length': 32})
         add({'name': f'uses{k}', 'type': 'u8', 'offset': hex(base + 4)})
         add({'name': f'maxuses{k}', 'type': 'u8', 'offset': hex(base), 'offsets': ['0x18']})
+        for field, off in (('mt', 0x19), ('hit', 0x1A), ('wt', 0x1B), ('crit', 0x1C), ('rmin', 0x1D), ('rmax', 0x1E)):
+            add({'name': f'{field}{k}', 'type': 'u8', 'offset': hex(base), 'offsets': [hex(off)]})
     # Computed.
     add({'name': 'name', 'expr': "default(table(names, mpid), '???')"})
     add({'name': 'cls', 'expr': "default(table(names, mjid), '')"})
@@ -346,7 +349,7 @@ def unit_card(x, y, w, compact=False):
     out.append(navy(x, y, w, stats_h))
     out += tab_header(x + 14, y + 12, 210, 'Personal Data', 24)
     cw = (w - 40 - 28) / 2
-    ch = 38 if compact else 46
+    ch = 36 if compact else 46
     left = ['str', 'mag', 'skl', 'spd']
     right = ['lck', 'def', 'res']
     top = y + (52 if compact else 60)
@@ -372,6 +375,31 @@ def item_rows(x, y, w, rows, row_h, u='units[focus]'):
         out.append(text(x + 44, ry, w - 160, row_h, f'{{{u}.item{k}}}', row_h * 0.56, visible_if=vis))
         out.append(text(x + w - 110, ry, 110, row_h, f'{{{u}.uses{k}}}', row_h * 0.56, align='right',
                         color='@label', visible_if=vis))
+    return out
+
+
+def item_details(x, y, w, rows, row_h, u='units[focus]'):
+    """Status page items: name, uses gauge and weapon numbers."""
+    out = []
+    for k in range(rows):
+        ry = y + k * row_h
+        vis = f"{u}.item{k} != ''"
+        weapon = f"{vis} && {u}.kind{k} != 'item'"
+        out.append({'type': 'rect', 'x': x - 8, 'y': ry + 2, 'w': w + 16, 'h': row_h - 8, 'radius': 6,
+                    'fill': '#12FFFFFF', 'visible_if': vis})
+        out.append({'type': 'path', 'x': x, 'y': ry + 12, 'w': 34, 'h': 34, 'viewbox': [0, 0, 24, 24],
+                    'd': f'{{table(icon, {u}.kind{k})}}', 'fill': '@gold', 'stroke': '@edge', 'stroke_width': 1,
+                    'visible_if': vis})
+        out.append(text(x + 46, ry + 6, w * 0.55, row_h * 0.42, f'{{{u}.item{k}}}', row_h * 0.34, visible_if=vis))
+        out.append(text(x + w - 150, ry + 6, 150, row_h * 0.42, f'{{{u}.uses{k}}} / {{{u}.maxuses{k}}}',
+                        row_h * 0.3, color='@label', align='right', visible_if=vis))
+        out.append({'type': 'bar', 'x': x + 46, 'y': ry + row_h * 0.5, 'w': w - 46, 'h': 7, 'radius': 3.5,
+                    'value': f'{u}.uses{k}', 'max': f'{u}.maxuses{k}', 'track': '@track_light',
+                    'fill': '@gold_hi', 'fill2': '@gold', 'visible_if': vis})
+        out.append(text(x + 46, ry + row_h * 0.58, w - 46, row_h * 0.32,
+                        f"Mt {{{u}.mt{k}}}   Hit {{{u}.hit{k}}}   Crit {{{u}.crit{k}}}   Wt {{{u}.wt{k}}}   "
+                        f"Rng {{{u}.rmin{k} == {u}.rmax{k} ? str({u}.rmin{k}) : str({u}.rmin{k}) + '-' + str({u}.rmax{k})}}",
+                        row_h * 0.24, color='@header', bold=False, visible_if=weapon))
     return out
 
 
@@ -508,7 +536,7 @@ def roster_column(x, y, w, h, army, title, color, compact):
     out.append(text(x + w - 120, y + 10, 100, 36, f"{{countif(units, 'army', {army})}}", 30, align='right', color='@label'))
     row = [
         {'type': 'rect', 'x': 0, 'y': 0, 'w': w - 36, 'h': row_h - 6, 'radius': 6,
-         'fill': "{$index == focus ? '#26FFFFFF' : '#0DFFFFFF'}", 'action': 'select_unit'},
+         'fill': "{$index == focus ? '#26FFFFFF' : '#0DFFFFFF'}", 'action': 'inspect_unit'},
         {'type': 'path', 'x': 10, 'y': (row_h - 6) / 2 - 10, 'w': 20, 'h': 20, 'viewbox': [0, 0, 24, 24],
          'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': color},
         text(40, 2, (w - 36) * 0.36, row_h * 0.5, '{name}', row_h * 0.4),
@@ -536,16 +564,32 @@ def status_page(W, H, top, bottom, compact):
     cw = (W - m * 3) * 0.5
     card, cy = unit_card(m, top, cw, compact)
     out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements': card})
-    if bottom - cy > 60:
-        out.append(parchment(m, cy, cw, bottom - cy, visible_if='focus >= 0', corner='bracket', corner_size=10))
-        out.append(text(m + 20, cy, cw - 40, bottom - cy, "{terrain != '' ? 'Standing on ' + terrain : ''}",
-                        min(30, (bottom - cy) * 0.45), color='@ink', visible_if='focus >= 0'))
+    ph = bottom - cy
+    if ph > 60:
+        u = 'units[focus]'
+        panel = [parchment(m, cy, cw, ph, corner='bracket', corner_size=10)]
+        line = min(44, ph / 4.2)
+        panel.append(text(m + 22, cy + 12, cw * 0.5, line, 'Class Maximums', line * 0.62, color='@ink'))
+        panel.append(text(m + cw * 0.5, cy + 12, cw * 0.5 - 22, line,
+                          "{terrain != '' ? 'On ' + terrain : ''}", line * 0.56, color='@ink_soft', align='right'))
+        panel.append({'type': 'rect', 'x': m + 22, 'y': cy + 16 + line, 'w': cw - 44, 'h': 1.5, 'fill': '@parch_trim'})
+        caps = [('HP', 'max_maxhp')] + [(STAT_LABELS[st], f'max_{st}') for st in STATS[1:]]
+        cell_w = (cw - 44) / 4
+        cell_h = min(line * 1.5, (ph - line - 40) / 2)
+        for i, (label, field) in enumerate(caps):
+            cx_ = m + 22 + (i % 4) * cell_w
+            cy_ = cy + 28 + line + (i // 4) * cell_h
+            panel.append(text(cx_, cy_, cell_w * 0.5, cell_h * 0.6, label, cell_h * 0.36, color='@ink_soft'))
+            panel.append(text(cx_ + cell_w * 0.45, cy_, cell_w * 0.45, cell_h * 0.6, f'{{{u}.{field}}}',
+                              cell_h * 0.42, color='@ink', align='right'))
+        out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements': panel})
     rx = m * 2 + cw
     rw = W - rx - m
+    row_h = min(110, (bottom - top - 70) / ITEM_SLOTS)
     out.append(navy(rx, top, rw, bottom - top, visible_if='focus >= 0'))
     out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements':
                 tab_header(rx + 14, top + 12, 120, 'Items', 24) +
-                item_rows(rx + 24, top + 56, rw - 48, ITEM_SLOTS, 50 if not compact else 44)})
+                item_details(rx + 30, top + 58, rw - 60, ITEM_SLOTS, row_h)})
     out.append(navy(m, top, W - m * 2, bottom - top, visible_if='focus < 0'))
     out.append(text(m, top + (bottom - top) / 2 - 30, W - m * 2, 60, 'Select a unit on the Battle or Army page.',
                     30, color='@label', align='center', visible_if='focus < 0'))
@@ -572,6 +616,7 @@ def manifest():
     actions = [{'id': f'go_{page}', 'steps': [{'page': page}]} for page, _ in PAGES]
     actions += [
         {'id': 'select_unit', 'steps': [{'set': 'sel', 'value': '$index'}]},
+        {'id': 'inspect_unit', 'steps': [{'set': 'sel', 'value': '$index'}, {'page': 'status'}]},
         {'id': 'follow_cursor', 'steps': [{'set': 'sel', 'value': -1}]},
     ]
     return {
