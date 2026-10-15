@@ -22,6 +22,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/StringUtil.h"
+#include "Core/Duo/DiscAssets.h"
 #include "Core/Duo/Evaluator.h"
 #include "Core/Duo/Manifest.h"
 
@@ -270,6 +271,10 @@ int Preview(const std::vector<std::string>& args)
       .action("store")
       .help("Optional. Screen size WxH; picks the closest canvas layout like the device does.")
       .metavar("WxH");
+  parser.add_option("--disc")
+      .action("store")
+      .help("Optional. The game's disc image, to decode disc: images for the preview renderer.")
+      .metavar("FILE");
   parser.add_option("--state")
       .action("store")
       .help("Optional. UI state overrides, e.g. \"sel=3,tab=1\" (numbers only).")
@@ -321,6 +326,7 @@ int Preview(const std::vector<std::string>& args)
   }
   system.title = manifest->name;
   system.is_wii = !options["mem2"].empty();
+  system.has_disc = options.is_set_by_user("disc");
 
   // Decode Shift-JIS game text the same way the runtime does.
   Duo::Evaluator evaluator(*manifest, [](Duo::TextEncoding encoding, std::span<const u8> bytes) {
@@ -372,6 +378,35 @@ int Preview(const std::vector<std::string>& args)
     companion["version"] = picojson::value(manifest->version);
     companion["directory"] = picojson::value(directory);
     snapshot.get<picojson::object>()["companion"] = picojson::value(std::move(companion));
+
+    // Decode the disc: images the page uses, the way the device does, into a cache folder.
+    if (options.is_set_by_user("disc") && snapshot.contains("elements"))
+    {
+      const std::string cache =
+          (std::filesystem::temp_directory_path() / "dolphin-duo-preview" / system.game_id)
+              .string() +
+          "/";
+      picojson::object images;
+      for (const picojson::value& element : snapshot.get("elements").get<picojson::array>())
+      {
+        if (!element.contains("src") || !element.get("src").is<std::string>())
+          continue;
+        const std::string& src = element.get("src").get<std::string>();
+        if (!src.starts_with("disc:") || images.contains(src))
+          continue;
+        std::string error;
+        if (const std::optional<std::string> png =
+                Duo::MaterializeDiscImage(options["disc"], cache, src, &error))
+        {
+          images[src] = picojson::value(*png);
+        }
+        else
+        {
+          fmt::print(std::cerr, "Warning: {}\n", error);
+        }
+      }
+      snapshot.get<picojson::object>()["disc_images"] = picojson::value(std::move(images));
+    }
     fmt::print("{}\n", snapshot.serialize(true));
     return EXIT_SUCCESS;
   }
@@ -405,7 +440,7 @@ int DuoCommand(const std::vector<std::string>& args)
                "usage: dolphin-tool duo validate <companion folder or manifest.json>\n"
                "       dolphin-tool duo preview <companion> --mem1 mem1.raw [--mem2 mem2.raw]\n"
                "                                [--page ID] [--layout ID | --screen WxH]\n"
-               "                                [--state name=value,...] [--json]\n");
+               "                                [--state name=value,...] [--disc image] [--json]\n");
     return EXIT_FAILURE;
   };
   if (args.empty())
