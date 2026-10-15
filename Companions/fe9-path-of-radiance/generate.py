@@ -175,6 +175,7 @@ def unit_fields():
     add({'name': 'pid', 'type': 'string', 'offset': '0x174', 'offsets': ['0x0', '0x0'], 'length': 32})
     add({'name': 'mpid', 'type': 'string', 'offset': '0x174', 'offsets': ['0x4', '0x0'], 'length': 32})
     add({'name': 'mjid', 'type': 'string', 'offset': '0x178', 'offsets': ['0x4', '0x0'], 'length': 32})
+    add({'name': 'fid', 'type': 'string', 'offset': '0x174', 'offsets': ['0xC', '0x0'], 'length': 32})
     add({'name': 'army', 'type': 'u8', 'offset': '0x17C', 'offsets': ['0x8']})
     add({'name': 'lv', 'type': 'u8', 'offset': '0x186'})
     add({'name': 'exp', 'type': 'u8', 'offset': '0x187'})
@@ -286,6 +287,97 @@ def tab_header(x, y, w, label, size=26):
     ]
 
 
+# --------------------------------------------------------------------------------------------
+# The game's own windows, decoded from the player's disc at run time ("disc:" images). Each helper
+# falls back to a drawn frame when no disc is available ($disc is false).
+
+PLATE = {'green': 2, 'navy': 3, 'maroon': 4}
+GOLD_FRAME_CROP = [306, 0, 128, 118]  # The rounded gold frame inside window/talk2.tpl.
+
+
+def disc_img(src, x, y, w, h, **extra):
+    e = {'type': 'image', 'src': src, 'x': x, 'y': y, 'w': w, 'h': h}
+    e.update(extra)
+    return e
+
+
+def both(vis, extra):
+    return f'({vis}) && ({extra})' if vis else extra
+
+
+def game_plate(x, y, w, h, color='green', visible_if=None, action=None, opacity=None):
+    """A menu plate from window/filemenu.cms (green, navy or maroon) with its gold frame."""
+    scale = min(h / 56, w / 300)
+    disc_vis = both(visible_if, '$disc')
+    fallback = plate(x, y, w, h, color, visible_if=both(visible_if, '!$disc'))
+    if color == 'navy':
+        fallback = navy(x, y, w, h, visible_if=both(visible_if, '!$disc'))
+    out = [fallback]
+    out.append(disc_img(f'disc:window/filemenu.cms#{PLATE[color]}', x, y, w, h, slice=[44, 0, 44, 0],
+                        slice_scale=scale, visible_if=disc_vis))
+    out.append(disc_img('disc:window/filemenu.cms#5', x, y, w, h, slice=[44, 0, 44, 0], slice_scale=scale,
+                        visible_if=disc_vis))
+    for e in out:
+        if action:
+            e['action'] = action
+        if opacity is not None:
+            e['opacity'] = opacity
+    return out
+
+
+def game_tab(x, y, w, h, active, visible_if=None, action=None):
+    """Page tabs: the small menu plate from filemenu.cms #0/#1; dimmed when inactive."""
+    scale = h / 48
+    out = []
+    for state, opacity in ((active, 1.0), (f'!({active})', 0.38)):
+        vis = both(visible_if, state)
+        out.append(plate(x, y, w, h, 'green' if opacity == 1.0 else 'parchment', visible_if=both(vis, '!$disc'),
+                         action=action))
+        out.append(disc_img('disc:window/filemenu.cms#0', x, y, w, h, slice=[40, 0, 40, 0], slice_scale=scale,
+                            visible_if=both(vis, '$disc'), opacity=opacity, action=action))
+        out.append(disc_img('disc:window/filemenu.cms#1', x, y, w, h, slice=[40, 0, 40, 0], slice_scale=scale,
+                            visible_if=both(vis, '$disc'), opacity=opacity, action=action))
+    # The game marks the chosen menu entry with its gold dragon medallion.
+    out.append(disc_img('disc:window/filemenu.cms#7', x - h * 0.12, y - h * 0.08, h * 0.95, h * 1.14,
+                        visible_if=both(both(visible_if, active), '$disc')))
+    return out
+
+
+def name_plate(x, y, w, h, visible_if=None):
+    """The maroon name plate with gold scrollwork from window/level.tpl #2, mirrored for its right end."""
+    scale = h / 56
+    half = w / 2
+    vis = both(visible_if, '$disc')
+    return [
+        plate(x, y, w, h, 'maroon', visible_if=both(visible_if, '!$disc')),
+        disc_img('disc:window/level.tpl#2', x, y, half + 2, h, crop=[0, 0, 146, 56], slice=[60, 0, 0, 0],
+                 slice_scale=scale, visible_if=vis),
+        disc_img('disc:window/level.tpl#2', x + half - 2, y, half + 2, h, crop=[0, 0, 146, 56], slice=[60, 0, 0, 0],
+                 slice_scale=scale, flip_x=1, visible_if=vis),
+    ]
+
+
+def gold_frame(x, y, w, h, corner=28, visible_if=None):
+    """The rounded gold frame from window/talk2.tpl, stretched around a panel (disc only)."""
+    return [disc_img('disc:window/talk2.tpl#0', x, y, w, h, crop=GOLD_FRAME_CROP, slice=[30, 30, 30, 30],
+                     slice_scale=corner / 30, visible_if=both(visible_if, '$disc'))]
+
+
+def textured_navy(x, y, w, h, visible_if=None):
+    """The patterned navy of the game's message window (talk2.tpl) inside its gold frame."""
+    return [
+        navy(x, y, w, h, visible_if=both(visible_if, '!$disc')),
+        disc_img('disc:window/talk2.tpl#0', x + 6, y + 6, w - 12, h - 12, crop=[30, 12, 264, 124],
+                 visible_if=both(visible_if, '$disc')),
+    ] + gold_frame(x, y, w, h, corner=30, visible_if=visible_if)
+
+
+def portrait(x, y, size, u, visible_if=None):
+    """The character's small portrait: Face/<FID>.cms image 13 (64x64)."""
+    return [disc_img(f"disc:Face/{{substr({u}.fid, 4)}}.cms#13", x, y, size, size,
+                     visible_if=both(visible_if, f"$disc && {u}.fid != null"))]
+
+
 def background(W, H):
     cx, cy = W / 2, H / 2
     r = min(W, H) * 0.42
@@ -311,54 +403,110 @@ def stat_cell(x, y, w, h, stat, u='units[focus]'):
     ]
 
 
+PD_SLICE = 30                      # level.tpl #4 is 288x208; corners/ornaments within 30 px.
+PD_ROWS = [34, 66, 98, 130, 162]   # Slot tops (12 px tall) in the texture.
+PD_COLS = [(11, 132), (156, 276)]  # Slot x ranges.
+PD_LEFT = ['str', 'mag', 'skl', 'spd', 'lck']
+PD_RIGHT = ['def', 'res', 'move', 'build', 'lv']
+PD_LABELS = dict(STAT_LABELS, move='Mv', build='Wt', lv='Lv')
+
+
+def pd_map(v, size, src_size, scale):
+    """Maps a texture coordinate to the canvas through the nine-slice of the Personal Data panel."""
+    edge = PD_SLICE * scale
+    if v <= PD_SLICE:
+        return v * scale
+    if v >= src_size - PD_SLICE:
+        return size - (src_size - v) * scale
+    return edge + (v - PD_SLICE) * (size - 2 * edge) / (src_size - 2 * PD_SLICE)
+
+
+def personal_data(x, y, w, h, u):
+    """Stats in the recessed slots of the game's own stat window (level.tpl #4), or a drawn
+    fallback without a disc."""
+    out = []
+    scale = min(w / 288, h / 208) * 0.9
+    out.append(disc_img('disc:window/level.tpl#4', x, y, w, h, slice=[PD_SLICE] * 4, slice_scale=scale,
+                        visible_if='$disc'))
+    for col, stats in zip(PD_COLS, (PD_LEFT, PD_RIGHT)):
+        x0 = x + pd_map(col[0], w, 288, scale)
+        x1 = x + pd_map(col[1], w, 288, scale)
+        for top, stat in zip(PD_ROWS, stats):
+            y0 = y + pd_map(top, h, 208, scale)
+            y1 = y + pd_map(top + 12, h, 208, scale)
+            sh = y1 - y0
+            pad = sh * 0.35
+            row = []
+            if stat in STAT_LABELS:
+                row.append({'type': 'bar', 'x': x0, 'y': y0, 'w': x1 - x0, 'h': sh, 'radius': sh / 2,
+                            'value': f'{u}.{stat}', 'max': f'{u}.max_{stat}', 'fill': '#59E8C870',
+                            'fill2': '#26D9B65A'})
+            row.append(text(x0 + pad, y0 - sh * 0.9, (x1 - x0) * 0.5, sh * 2.8, PD_LABELS[stat], sh * 1.45,
+                            color='@label', shadow='#C0000000', shadow_dx=1.5, shadow_dy=1.5))
+            row.append(text(x0 + (x1 - x0) * 0.5, y0 - sh * 0.9, (x1 - x0) * 0.5 - pad, sh * 2.8,
+                            f'{{{u}.{stat}}}', sh * 1.6, align='right', shadow='#C0000000', shadow_dx=1.5,
+                            shadow_dy=1.5))
+            out.append({'type': 'group', 'visible_if': '$disc', 'elements': row})
+
+    # Without a disc: the drawn navy window.
+    fallback = [navy(x, y, w, h)]
+    fallback += tab_header(x + 14, y + 12, 210, 'Personal Data', 24)
+    cw = (w - 40 - 28) / 2
+    ch = min(46, (h - 70) / 4)
+    top = y + 58
+    for i, stat in enumerate(['str', 'mag', 'skl', 'spd']):
+        fallback += stat_cell(x + 20, top + i * ch, cw, ch, stat, u)
+    for i, stat in enumerate(['lck', 'def', 'res']):
+        fallback += stat_cell(x + 48 + cw, top + i * ch, cw, ch, stat, u)
+    fallback.append(text(x + 48 + cw, top + 3 * ch, cw * 0.42, ch * 0.62, 'Mv', ch * 0.5, color='@label'))
+    fallback.append(text(x + 48 + cw * 1.42, top + 3 * ch, cw * 0.58, ch * 0.62, f'{{{u}.move}}', ch * 0.56,
+                         align='right'))
+    out.append({'type': 'group', 'visible_if': '!$disc', 'elements': fallback})
+    return out
+
+
 def unit_card(x, y, w, compact=False):
-    """The selected unit: name plate, parchment info, Personal Data, items. Returns (elements, height)."""
+    """The selected unit: name plate, parchment info with portrait, Personal Data. Returns
+    (elements, bottom)."""
     u = 'units[focus]'
     out = []
     name_h = 56 if compact else 64
-    out.append(plate(x, y, w, name_h, 'maroon'))
-    out.append({'type': 'path', 'x': x + 18, 'y': y + name_h / 2 - 12, 'w': 24, 'h': 24, 'viewbox': [0, 0, 24, 24],
+    out += name_plate(x, y, w, name_h)
+    out.append({'type': 'path', 'x': x + w - 52, 'y': y + name_h / 2 - 12, 'w': 24, 'h': 24, 'viewbox': [0, 0, 24, 24],
                 'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': f'{{{u}.color}}', 'stroke': '@gold_hi', 'stroke_width': 1.5})
-    out.append(text(x + 52, y + 6, w - 104, name_h - 12, f'{{{u}.name}}', name_h * 0.58, color='@cream', align='center'))
+    out.append(text(x + 70, y + 6, w - 140, name_h - 12, f'{{{u}.name}}', name_h * 0.56, color='@cream',
+                    align='center', shadow='#B0000000', shadow_dx=2, shadow_dy=2))
     y += name_h + 8
 
     info_h = 136 if compact else 168
     out.append(parchment(x, y, w, info_h))
+    pic = info_h - 20
+    out += portrait(x + w - pic - 12, y + 10, pic, u)
+    out += gold_frame(x + w - pic - 18, y + 4, pic + 12, pic + 12, corner=16)
     pad = 22
-    col = (w - pad * 2)
-    out.append(text(x + pad, y + 14, col * 0.62, 40, f'{{{u}.cls}}', 34, color='@ink'))
-    out.append(text(x + pad + col * 0.62, y + 14, col * 0.38, 40,
-                    f'Mv {{{u}.move}}   Wt {{{u}.build}}', 28, color='@ink', align='right'))
-    out.append(text(x + pad, y + 56, 60, 36, 'Lv', 26, color='@ink_soft'))
-    out.append(text(x + pad + 48, y + 54, 70, 40, f'{{{u}.lv}}', 34, color='@ink'))
-    out.append(text(x + pad + 130, y + 56, 50, 36, 'EX', 26, color='@ink_soft'))
-    out.append(text(x + pad + 172, y + 54, 80, 40, f"{{{u}.army == 0 ? str({u}.exp) : '--'}}", 34, color='@ink'))
-    out.append({'type': 'bar', 'x': x + pad + 262, 'y': y + 70, 'w': col - 262, 'h': 12, 'value': f'{u}.exp', 'max': 100,
-                'track': '#405A4214', 'fill': '@exp', 'fill2': '@exp2', 'radius': 6,
+    col = w - pad * 2 - (pic + 20)
+    big = info_h * 0.21
+    out.append(text(x + pad, y + info_h * 0.07, col, info_h * 0.26, f'{{{u}.cls}}', big, color='@ink'))
+    ly = y + info_h * 0.36
+    out.append(text(x + pad, ly, 50, info_h * 0.24, 'Lv', big * 0.75, color='@ink_soft'))
+    out.append(text(x + pad + 42, ly, 60, info_h * 0.24, f'{{{u}.lv}}', big * 0.95, color='@ink'))
+    out.append(text(x + pad + 100, ly, 50, info_h * 0.24, 'EX', big * 0.75, color='@ink_soft'))
+    out.append(text(x + pad + 140, ly, 64, info_h * 0.24, f"{{{u}.army == 0 ? str({u}.exp) : '--'}}", big * 0.95,
+                    color='@ink'))
+    out.append({'type': 'bar', 'x': x + pad + 210, 'y': ly + info_h * 0.09, 'w': col - 210, 'h': 10,
+                'value': f'{u}.exp', 'max': 100, 'track': '#405A4214', 'fill': '@exp', 'fill2': '@exp2', 'radius': 5,
                 'visible_if': f'{u}.army == 0'})
-    hp_y = y + (96 if not compact else 92)
-    out.append(text(x + pad, hp_y, 60, 40, 'HP', 28, color='@ink_soft'))
-    out.append(text(x + pad + 54, hp_y - 2, 170, 44, f'{{{u}.hp}}', 40, color='@ink', align='right'))
-    out.append(text(x + pad + 228, hp_y + 2, 120, 40, f'/ {{{u}.maxhp}}', 32, color='@hp_text'))
-    out.append({'type': 'bar', 'x': x + pad + 350, 'y': hp_y + 14, 'w': col - 350, 'h': 16, 'value': f'{u}.hp',
-                'max': f'{u}.maxhp', 'track': '#405A4214', 'fill': '@hp', 'fill2': '@hp2', 'radius': 8,
+    hy = y + info_h * 0.66
+    out.append(text(x + pad, hy, 50, info_h * 0.26, 'HP', big * 0.8, color='@ink_soft'))
+    out.append(text(x + pad + 40, hy - 2, 90, info_h * 0.28, f'{{{u}.hp}}', big * 1.15, color='@ink', align='right'))
+    out.append(text(x + pad + 134, hy, 90, info_h * 0.26, f'/ {{{u}.maxhp}}', big * 0.9, color='@hp_text'))
+    out.append({'type': 'bar', 'x': x + pad + 226, 'y': hy + info_h * 0.08, 'w': col - 226, 'h': 14, 'value': f'{u}.hp',
+                'max': f'{u}.maxhp', 'track': '#405A4214', 'fill': '@hp', 'fill2': '@hp2', 'radius': 7,
                 'stroke': '#805A4214', 'stroke_width': 1.5})
     y += info_h + 8
 
-    stats_h = 196 if compact else 240
-    out.append(navy(x, y, w, stats_h))
-    out += tab_header(x + 14, y + 12, 210, 'Personal Data', 24)
-    cw = (w - 40 - 28) / 2
-    ch = 36 if compact else 46
-    left = ['str', 'mag', 'skl', 'spd']
-    right = ['lck', 'def', 'res']
-    top = y + (52 if compact else 60)
-    for i, stat in enumerate(left):
-        out += stat_cell(x + 20, top + i * ch, cw, ch, stat)
-    for i, stat in enumerate(right):
-        out += stat_cell(x + 48 + cw, top + i * ch, cw, ch, stat)
-    out.append(text(x + 48 + cw, top + 3 * ch, cw * 0.42, ch * 0.62, 'Mv', ch * 0.5, color='@label'))
-    out.append(text(x + 48 + cw * 1.42, top + 3 * ch, cw * 0.58, ch * 0.62, f'{{{u}.move}}', ch * 0.56, align='right'))
+    stats_h = 230 if compact else 300
+    out += personal_data(x, y, w, stats_h, u)
     y += stats_h + 8
     return out, y
 
@@ -421,16 +569,16 @@ def minimap(x, y, w, h):
          ]},
         text(x, y + h / 2 - 30, w, 60, 'Waiting for a battle map…', 30, color='@gold', align='center',
              visible_if='!map_ok'),
-    ]
+    ] + gold_frame(x + 2, y + 2, w - 4, h - 4, corner=34)
 
 
 def army_banner(x, y, w, h, label, value, color):
-    return [
-        plate(x, y, w, h, 'navy', fill=color, fill2='#0A0A14', corner='bracket', corner_size=12),
-        {'type': 'path', 'x': x + 14, 'y': y + h / 2 - 14, 'w': 28, 'h': 28, 'viewbox': [0, 0, 24, 24],
+    plate_color = {'@player': 'navy', '@enemy': 'maroon'}.get(color, 'green')
+    return game_plate(x, y, w, h, plate_color) + [
+        {'type': 'path', 'x': x + h * 0.5, 'y': y + h / 2 - 13, 'w': 26, 'h': 26, 'viewbox': [0, 0, 24, 24],
          'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': color, 'stroke': '@gold_hi', 'stroke_width': 1.5},
-        text(x + 54, y, w - 150, h, label, h * 0.46, color='@cream'),
-        text(x + w - 96, y, 80, h, value, h * 0.62, align='right'),
+        text(x + h * 0.5 + 40, y, w - 160, h, label, h * 0.44, color='@cream', shadow='#B0000000'),
+        text(x + w - 110, y, 70, h, value, h * 0.58, align='right', shadow='#B0000000'),
     ]
 
 
@@ -447,32 +595,33 @@ def chrome(W, H, compact):
     tw = 180 if compact else 210
     pw = 230 if compact else 270
     cw = W - m * 4 - tw - pw
-    out.append(plate(m, m, cw, hh, 'green'))
-    out.append(text(m + 26, m + 10, cw - 52, hh * 0.5, '{chapter}', hh * 0.36, color='@cream'))
-    out.append(text(m + 26, m + hh * 0.56, cw - 52, hh * 0.36, "{victory != '' ? 'Victory: ' + victory : ''}",
-                    hh * 0.25, color='@gold_hi'))
+    out += game_plate(m, m, cw, hh, 'green')
+    out.append(text(m + 56, m + 8, cw - 112, hh * 0.52, '{chapter}', hh * 0.36, color='@cream',
+                    shadow='#B0000000'))
+    out.append(text(m + 56, m + hh * 0.56, cw - 112, hh * 0.34, "{victory != '' ? 'Victory: ' + victory : ''}",
+                    hh * 0.24, color='@gold_hi', shadow='#B0000000'))
     tx = m * 2 + cw
-    out.append(navy(tx, m, tw, hh))
-    out.append(text(tx, m + 8, tw, hh * 0.3, 'Turn', hh * 0.22, color='@label', align='center'))
-    out.append(text(tx, m + hh * 0.34, tw, hh * 0.56, '{turn}', hh * 0.5, align='center'))
+    out += game_plate(tx, m, tw, hh, 'navy')
+    out.append(text(tx, m + 10, tw, hh * 0.3, 'Turn', hh * 0.22, color='@label', align='center'))
+    out.append(text(tx, m + hh * 0.36, tw, hh * 0.54, '{turn}', hh * 0.48, align='center', shadow='#B0000000'))
     px = tx + tw + m
-    out.append(plate(px, m, pw, hh, 'navy', fill="{phase == 1 ? '#8A1A12' : phase == 2 ? '#1D6A3A' : '#1D3F9A'}",
-                     fill2="{phase == 1 ? '#3A0806' : phase == 2 ? '#0A2A16' : '#0A1A4A'}"))
+    for phase, color in ((0, 'navy'), (1, 'maroon'), (2, 'green')):
+        cond = f'phase == {phase}' if phase else 'phase != 1 && phase != 2'
+        out += game_plate(px, m, pw, hh, color, visible_if=cond)
     out.append(text(px, m + 8, pw, hh * 0.5, "{phase == 1 ? 'Enemy' : phase == 2 ? 'Other' : 'Player'}",
                     hh * 0.42, font='title', color='@cream', align='center', fill2='@gold_hi',
                     shadow='@shadow'))
     out.append(text(px, m + hh * 0.54, pw, hh * 0.36, 'PHASE', hh * 0.26, font='title', color='@gold_hi',
-                    align='center', letter_spacing=0.2))
+                    align='center', letter_spacing=0.2, shadow='@shadow'))
 
     th = 64 if compact else 72
     ty = H - th - m
     tab_w = (W - m * (len(PAGES) + 1)) / len(PAGES)
     for i, (page, label) in enumerate(PAGES):
         x = m + i * (tab_w + m)
-        out.append(plate(x, ty, tab_w, th, 'green', visible_if=f"$page == '{page}'", action=f'go_{page}'))
-        out.append(plate(x, ty, tab_w, th, 'parchment', visible_if=f"$page != '{page}'", action=f'go_{page}'))
-        out.append(text(x, ty, tab_w, th, label, th * 0.48, align='center',
-                        color=f"{{$page == '{page}' ? '#F6EAC8' : '#3B2A12'}}"))
+        out += game_tab(x, ty, tab_w, th, f"$page == '{page}'", action=f'go_{page}')
+        out.append(text(x, ty, tab_w, th, label, th * 0.48, align='center', shadow='#B0000000',
+                        color=f"{{$disc || $page == '{page}' ? '#F6EAC8' : '#3B2A12'}}"))
     return out, hh + m * 2, ty - m
 
 
@@ -509,7 +658,7 @@ def battle_page(W, H, top, bottom, compact):
     out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements': card})
     rest = bottom - cy
     if rest > 80:
-        out.append(navy(cx, cy, cw, rest, visible_if='focus >= 0'))
+        out += textured_navy(cx, cy, cw, rest, visible_if='focus >= 0')
         out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements':
                     tab_header(cx + 14, cy + 12, 120, 'Items', 24) +
                     item_rows(cx + 24, cy + 52, cw - 48, min(ITEM_SLOTS, int((rest - 64) // 44)), 44)})
@@ -531,16 +680,19 @@ def battle_page(W, H, top, bottom, compact):
 def roster_column(x, y, w, h, army, title, color, compact):
     row_h = 52 if compact else 60
     rows = int((h - 70) // row_h)
-    out = [navy(x, y, w, h)]
+    out = textured_navy(x, y, w, h)
     out += tab_header(x + 14, y + 12, 190, title, 24)
     out.append(text(x + w - 120, y + 10, 100, 36, f"{{countif(units, 'army', {army})}}", 30, align='right', color='@label'))
     row = [
         {'type': 'rect', 'x': 0, 'y': 0, 'w': w - 36, 'h': row_h - 6, 'radius': 6,
          'fill': "{$index == focus ? '#26FFFFFF' : '#0DFFFFFF'}", 'action': 'inspect_unit'},
         {'type': 'path', 'x': 10, 'y': (row_h - 6) / 2 - 10, 'w': 20, 'h': 20, 'viewbox': [0, 0, 24, 24],
-         'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': color},
-        text(40, 2, (w - 36) * 0.36, row_h * 0.5, '{name}', row_h * 0.4),
-        text(40, row_h * 0.48, (w - 36) * 0.36, row_h * 0.4, '{cls}', row_h * 0.3, color='@label', bold=False),
+         'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': color, 'visible_if': '!$disc || fid == null'},
+        disc_img("disc:Face/{substr(fid, 4)}.cms#13", 2, -1, row_h - 4, row_h - 4,
+                 visible_if='$disc && fid != null'),
+        text(row_h + 4, 2, (w - 36) * 0.36 - row_h + 36, row_h * 0.5, '{name}', row_h * 0.4),
+        text(row_h + 4, row_h * 0.48, (w - 36) * 0.36 - row_h + 36, row_h * 0.4, '{cls}', row_h * 0.3,
+             color='@label', bold=False),
         text(40 + (w - 36) * 0.37, 0, 70, row_h - 6, 'Lv {lv}', row_h * 0.34, color='@cream'),
         {'type': 'bar', 'x': 40 + (w - 36) * 0.37 + 80, 'y': (row_h - 6) / 2 - 5, 'w': (w - 36) * 0.63 - 210,
          'h': 10, 'value': 'hp', 'max': 'maxhp', 'track': '@track', 'fill': '@hp', 'fill2': '@hp2', 'radius': 5},
@@ -586,7 +738,7 @@ def status_page(W, H, top, bottom, compact):
     rx = m * 2 + cw
     rw = W - rx - m
     row_h = min(110, (bottom - top - 70) / ITEM_SLOTS)
-    out.append(navy(rx, top, rw, bottom - top, visible_if='focus >= 0'))
+    out += textured_navy(rx, top, rw, bottom - top, visible_if='focus >= 0')
     out.append({'type': 'group', 'visible_if': 'focus >= 0', 'elements':
                 tab_header(rx + 14, top + 12, 120, 'Items', 24) +
                 item_details(rx + 30, top + 58, rw - 60, ITEM_SLOTS, row_h)})

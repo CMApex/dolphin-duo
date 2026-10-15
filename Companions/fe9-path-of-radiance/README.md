@@ -1,8 +1,11 @@
 # Fire Emblem: Path of Radiance companion
 
 A Dolphin Duo companion for **Fire Emblem: Path of Radiance** (NTSC-U, `GFEE01`, revision 0),
-drawn in the game's own visual language: navy "Personal Data" windows with gold labels, parchment
-plates, maroon name plates, the green-and-gold chapter banner and the corner-bracket map cursor.
+drawn with the game's own windows: the menu plates and gold frames, the maroon name plate, the
+ornate stat window, the message window's patterned navy, character portraits and the gold dragon
+medallion that marks the chosen menu entry. All of it is read from **your disc** while you play
+(`disc:` images); nothing from the game ships with the companion. Without a disc image (e.g. a game
+booted another way) it falls back to drawn frames in the same colours.
 
 | Page | Shows |
 |---|---|
@@ -37,7 +40,7 @@ To see a page without a device, dump MEM1 from Dolphin's memory view (or with th
 in `Tools/DolphinDuo/headless`) and render it:
 
 ```sh
-dolphin-tool duo preview . --mem1 mem1.raw --screen 1240x1080 --page battle --json > snap.json
+dolphin-tool duo preview . --mem1 mem1.raw --disc GFEE01.rvz --screen 1240x1080 --page battle --json > snap.json
 node ../../Tools/DolphinDuo/preview/render.mjs snap.json battle.png
 ```
 
@@ -60,8 +63,10 @@ The top of `generate.py` documents every address. In short:
 
 * Units that have already acted are not greyed out (the flag is not in the unit record).
 * Battle forecast, skills, weapon ranks, supports and the biorhythm are not mapped yet.
-* Portraits and item icons from the disc (Eden Duo-style `disc:` assets) need texture decoding in
-  Dolphin Duo first; the weapon glyphs here are drawn from SVG paths.
+* Item icons: the game's icon atlas (`window/icon.tpl`) is there, but the item record's icon index
+  is not mapped yet, so items use drawn glyphs.
+* Large portraits: `Face/<name>.cms` #0 is drawn with separate eye and mouth layers whose positions
+  are not mapped yet; the companion uses the complete small portrait (#13).
 
 ## Credits
 
