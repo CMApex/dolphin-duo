@@ -3,9 +3,10 @@
 A Dolphin Duo companion for **Fire Emblem: Path of Radiance** (NTSC-U, `GFEE01`, revision 0),
 drawn with the game's own windows: the menu plates and gold frames, the maroon name plate, the
 ornate stat window, the message window's patterned navy, character portraits and the gold dragon
-medallion that marks the chosen menu entry. All of it is read from **your disc** while you play
-(`disc:` images); nothing from the game ships with the companion. Without a disc image (e.g. a game
-booted another way) it falls back to drawn frames in the same colours.
+medallion that marks the chosen menu entry, character portraits and item icons. All of it, and all
+the text it shows (names, classes, items, terrain, chapter titles), is read from **your disc** while
+you play; nothing from the game ships with the companion. Without a disc image (e.g. a game booted
+another way) it falls back to drawn frames and the game's internal IDs (`IKE`, `RANGER`).
 
 | Page | Shows |
 |---|---|
@@ -27,14 +28,11 @@ Zip this folder (or just `manifest.json` plus `fonts/`) and install it from
 ## Rebuilding
 
 ```sh
-python3 tools/extract_text.py --dolphin-tool path/to/dolphin-tool --disc "Fire Emblem - Path of Radiance (USA).rvz"
 python3 generate.py
 dolphin-tool duo validate .
 ```
 
-`text.json` holds the names the companion shows (characters, classes, items, terrain, chapter titles,
-victory conditions), read from the disc's `Mess/common.m`. `generate.py` builds `manifest.json`; edit
-the generator, not the manifest.
+`generate.py` builds `manifest.json`; edit the generator, not the manifest.
 
 To see a page without a device, dump MEM1 from Dolphin's memory view (or with the headless harness
 in `Tools/DolphinDuo/headless`) and render it:
@@ -63,8 +61,6 @@ The top of `generate.py` documents every address. In short:
 
 * Units that have already acted are not greyed out (the flag is not in the unit record).
 * Battle forecast, skills, weapon ranks, supports and the biorhythm are not mapped yet.
-* Item icons: the game's icon atlas (`window/icon.tpl`) is there, but the item record's icon index
-  is not mapped yet, so items use drawn glyphs.
 * Large portraits: `Face/<name>.cms` #0 is drawn with separate eye and mouth layers whose positions
   are not mapped yet; the companion uses the complete small portrait (#13).
 

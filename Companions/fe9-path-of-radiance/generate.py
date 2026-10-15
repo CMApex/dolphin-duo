@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generates manifest.json for the Fire Emblem: Path of Radiance (GFEE01) Dolphin Duo companion.
 
-Edit this file, not manifest.json. Names come from text.json (tools/extract_text.py reads them from
-your own disc); fonts are OFL (see fonts/). No game art is included.
+Edit this file, not manifest.json. Nothing from the game is included: names and other text come from
+the disc's message table (Mess/common.m) and window art, portraits and icons from its textures, both
+read while the game runs. Fonts are OFL (see fonts/).
 
 Memory map (NTSC-U GFEE01, rev 0), found with the headless harness (Tools/DolphinDuo/headless):
 
@@ -14,7 +15,10 @@ Memory map (NTSC-U GFEE01, rev 0), found with the headless harness (Tools/Dolphi
     +0x186 level  +0x187 EXP  +0x18A x  +0x18B y  +0x194 HP  +0x196 move bonus
     +0x197..0x19E HP..Res gains   +0x1B8 + k*8 items (u32 item record, u8 uses)
     Displayed stat = class base + character modifier + gain (checked on the status screen).
-  Item record   +0x00 IID  +0x04 MIID name  +0x18 max uses  +0x19 might  +0x1A hit  +0x1B weight
+  Item record   +0x00 IID  +0x04 MIID name  +0x12 weapon type (0 sword, 1 lance, 2 axe, 3 bow,
+                4-7 fire/thunder/wind/light, 8 knife, 9 laguz, 10 item, 11 ring)  +0x14 bit 0x80: staff
+                +0x15 item number (window/icon.tpl #0 icon = 96 + this)  +0x18 max uses  +0x19 might
+                +0x1A hit  +0x1B weight
                 +0x1C crit  +0x1D/+0x1E range (might checked: Ike Atk 11 = Str 5 + Trainer 6)
   Chapter state 0x80330719 phase, 0x8033071A turn (u16), 0x80330720 gold, 0x80330728 victory key
   Cursor        0x8032B238 / 0x8032B23C (f32 tile x / y)
@@ -26,7 +30,6 @@ import json
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TEXT = json.load(open(os.path.join(HERE, 'text.json'), encoding='utf-8'))
 
 UNIT_BASE = 0x802B14F8
 UNIT_STRIDE = 0x280
@@ -80,46 +83,14 @@ ICONS = {
 }
 
 
-def item_kind(iid):
-    key = iid.upper()
-    if any(w in key for w in ('STAFF', 'HEAL', 'MEND', 'RECOVER', 'PHYSIC', 'FORTIFY', 'RESTORE',
-                              'RESCUE', 'WARP', 'HAMMERNE', 'SLEEP', 'SILENCE', 'WARD', 'BARRIER')):
-        return 'staff'
-    if any(w in key for w in ('SWORD', 'BLADE', 'RAPIER', 'BRAVE_S', 'KATANA', 'REGAL', 'RAGNELL',
-                              'WISHBLADE', 'VENIN_S', 'KILLING_E', 'KILLINGEDGE', 'WO_DAO', 'WODAO')):
-        return 'sword'
-    if any(w in key for w in ('LANCE', 'SPEAR', 'PIKE', 'JAVELIN', 'GUARD', 'WISHLANCE')):
-        return 'lance'
-    if any(w in key for w in ('AXE', 'HAMMER', 'POLEAX', 'URVAN', 'TOMAHAWK', 'BOLTAXE')):
-        return 'axe'
-    if any(w in key for w in ('BOW', 'BALLISTA', 'BOLTCASTER')):
-        return 'bow'
-    if any(w in key for w in ('FIRE', 'THUNDER', 'THORON', 'WIND', 'TORNADO', 'BLIZZARD', 'LIGHT',
-                              'SHINE', 'NOSFE', 'PURGE', 'REXCALIBUR', 'REXBOLT', 'REXFLAME', 'REXAURA',
-                              'ELFIRE', 'ARCFIRE', 'BOLGANONE', 'METEOR', 'ELWIND', 'ELTHUNDER',
-                              'ARCTHUNDER', 'ARCWIND', 'CREIDDYLAD', 'CYMBELINE', 'ELLIGHT', 'VALAURA')):
-        return 'tome'
-    return 'item'
-
-
 def tables():
-    names = {k: v for k, v in TEXT.items() if k.startswith(('MPID_', 'MJID_', 'MIID_'))}
-    chapters = {f'bmap{int(k[3:]):02d}': v for k, v in TEXT.items()
-                if k.startswith('MCT') and k[3:].isdigit()}
-    victory = {k: v.capitalize() for k, v in TEXT.items() if k.startswith('MW_')}
-    terrain_en = {k[3:]: v for k, v in TEXT.items() if k.startswith('MT_') and not k[3:].isascii()}
-    kinds = {}
-    for key in TEXT:
-        if key.startswith('MIID_'):
-            iid = 'IID_' + key[5:]
-            kinds[iid] = item_kind(iid)
-    # Practice weapons are named after other items; classify them from the IID too.
-    for iid in ('IID_PRACTICESWORD', 'IID_PRACTICEAXE', 'IID_PRACTICELANCE', 'IID_PRACTICEBOW'):
-        kinds[iid] = item_kind(iid)
-    icons = {k: v for k, v in ICONS.items()}
     return {
-        'names': names, 'chapters': chapters, 'victory': victory, 'terrain_en': terrain_en,
-        'terrain_color': TERRAIN_COLOR, 'item_kind': kinds, 'icon': icons,
+        # Every name the companion shows comes from the disc's own message table.
+        'msg': 'disc:Mess/common.m',
+        'terrain_color': TERRAIN_COLOR,
+        'weapon_kind': {'0': 'sword', '1': 'lance', '2': 'axe', '3': 'bow', '4': 'tome', '5': 'tome',
+                        '6': 'tome', '7': 'tome', '8': 'sword'},
+        'icon': dict(ICONS),
         'army_color': {'0': '@player', '1': '@enemy', '2': '@other'},
         'army_name': {'0': 'Player', '1': 'Enemy', '2': 'Other'},
     }
@@ -155,11 +126,11 @@ def values():
     add({'name': 'sym_unique', 'expr': "find(syms, 'name', 'uniquepanel')"})
     add({'name': 'panel_addr', 'expr': 'map_data + syms[sym_panel].off'})
     add({'name': 'unique_addr', 'expr': 'map_data + syms[sym_unique].off'})
-    add({'name': 'chapter', 'expr': "default(table(chapters, map_name), map_name)"})
-    add({'name': 'victory', 'expr': "default(table(victory, win_key), '')"})
+    add({'name': 'chapter', 'expr': "default(table(msg, 'MCT' + substr(map_name, 4)), map_name)"})
+    add({'name': 'victory', 'expr': "default(table(msg, win_key), '')"})
     add({'name': 'cursor_cell', 'expr': 'cursor_y * map_w + cursor_x'})
     add({'name': 'terrain_jp', 'expr': "cells[cursor_cell].tname"})
-    add({'name': 'terrain', 'expr': "default(table(terrain_en, terrain_jp), '')"})
+    add({'name': 'terrain', 'expr': "default(table(msg, 'MT_' + terrain_jp), '')"})
     # Units: the one under the cursor, or the one picked by tapping.
     add({'name': 'hover', 'expr': "default(find(units, 'x', cursor_x, 'y', cursor_y), -1)"})
     add({'name': 'focus', 'expr': 'sel >= 0 && sel < count(units) ? sel : hover'})
@@ -193,15 +164,15 @@ def unit_fields():
     add({'name': 'p_build', 'type': 's8', 'offset': '0x174', 'offsets': ['0x1C']})
     for k in range(ITEM_SLOTS):
         base = 0x1B8 + k * 8
-        add({'name': f'iid{k}', 'type': 'string', 'offset': hex(base), 'offsets': ['0x0', '0x0'], 'length': 32})
         add({'name': f'miid{k}', 'type': 'string', 'offset': hex(base), 'offsets': ['0x4', '0x0'], 'length': 32})
         add({'name': f'uses{k}', 'type': 'u8', 'offset': hex(base + 4)})
-        add({'name': f'maxuses{k}', 'type': 'u8', 'offset': hex(base), 'offsets': ['0x18']})
-        for field, off in (('mt', 0x19), ('hit', 0x1A), ('wt', 0x1B), ('crit', 0x1C), ('rmin', 0x1D), ('rmax', 0x1E)):
+        for field, off in (('wtype', 0x12), ('wflags', 0x14), ('itemno', 0x15), ('maxuses', 0x18), ('mt', 0x19),
+                           ('hit', 0x1A), ('wt', 0x1B), ('crit', 0x1C), ('rmin', 0x1D), ('rmax', 0x1E)):
             add({'name': f'{field}{k}', 'type': 'u8', 'offset': hex(base), 'offsets': [hex(off)]})
     # Computed.
-    add({'name': 'name', 'expr': "default(table(names, mpid), '???')"})
-    add({'name': 'cls', 'expr': "default(table(names, mjid), '')"})
+    # Without a disc the message table is empty; the ID's own suffix (IKE, RANGER) still reads.
+    add({'name': 'name', 'expr': "default(table(msg, mpid), substr(mpid, 5))"})
+    add({'name': 'cls', 'expr': "default(table(msg, mjid), substr(mjid, 5))"})
     add({'name': 'maxhp', 'expr': 'c_hp + p_hp + g_hp'})
     for stat in STATS[1:]:
         add({'name': stat, 'expr': f'c_{stat} + p_{stat} + g_{stat}'})
@@ -209,10 +180,11 @@ def unit_fields():
     add({'name': 'max_maxhp', 'expr': 'cap_hp > 0 ? cap_hp : 60'})
     add({'name': 'move', 'expr': 'c_move + move_bonus'})
     add({'name': 'build', 'expr': 'c_build + p_build'})
-    add({'name': 'items', 'expr': ' + '.join(f'(iid{k} != null ? 1 : 0)' for k in range(ITEM_SLOTS))})
+    add({'name': 'items', 'expr': ' + '.join(f'(miid{k} != null ? 1 : 0)' for k in range(ITEM_SLOTS))})
     for k in range(ITEM_SLOTS):
-        add({'name': f'item{k}', 'expr': f"default(table(names, miid{k}), '')"})
-        add({'name': f'kind{k}', 'expr': f"default(table(item_kind, iid{k}), 'item')"})
+        add({'name': f'item{k}', 'expr': f"miid{k} == null ? '' : default(table(msg, miid{k}), substr(miid{k}, 5))"})
+        add({'name': f'kind{k}', 'expr': f"(wflags{k} & 128) != 0 ? 'staff' : default(table(weapon_kind, wtype{k}), 'item')"})
+        add({'name': f'icon{k}', 'expr': f'96 + itemno{k}'})
     add({'name': 'color', 'expr': "default(table(army_color, army), '@other')"})
     return f
 
@@ -372,6 +344,19 @@ def textured_navy(x, y, w, h, visible_if=None):
     ] + gold_frame(x, y, w, h, corner=30, visible_if=visible_if)
 
 
+def item_icon(x, y, size, u, k, visible_if):
+    """The game's own item icon (window/icon.tpl #0, 24x24 cells, 32 per row), or a drawn glyph."""
+    cell = f'{u}.icon{k}'
+    return [
+        {'type': 'path', 'x': x, 'y': y, 'w': size, 'h': size, 'viewbox': [0, 0, 24, 24],
+         'd': f'{{table(icon, {u}.kind{k})}}', 'fill': '@gold', 'stroke': '@edge', 'stroke_width': 1,
+         'visible_if': both(visible_if, '!$disc')},
+        disc_img('disc:window/icon.tpl#0', x, y, size, size,
+                 crop=[f'({cell} % 32) * 24', f'floor({cell} / 32) * 24', 24, 24],
+                 visible_if=both(visible_if, '$disc')),
+    ]
+
+
 def portrait(x, y, size, u, visible_if=None):
     """The character's small portrait: Face/<FID>.cms image 13 (64x64)."""
     return [disc_img(f"disc:Face/{{substr({u}.fid, 4)}}.cms#13", x, y, size, size,
@@ -481,6 +466,8 @@ def unit_card(x, y, w, compact=False):
     info_h = 136 if compact else 168
     out.append(parchment(x, y, w, info_h))
     pic = info_h - 20
+    out.append({'type': 'rect', 'x': x + w - pic - 13, 'y': y + 9, 'w': pic + 2, 'h': pic + 2, 'radius': 10,
+                'fill': '#2A3C78', 'fill2': '#0C1438', 'visible_if': '$disc'})
     out += portrait(x + w - pic - 12, y + 10, pic, u)
     out += gold_frame(x + w - pic - 18, y + 4, pic + 12, pic + 12, corner=16)
     pad = 22
@@ -517,9 +504,7 @@ def item_rows(x, y, w, rows, row_h, u='units[focus]'):
         ry = y + k * row_h
         vis = f"{u}.item{k} != ''"
         out.append({'type': 'rect', 'x': x, 'y': ry + row_h - 2, 'w': w, 'h': 1.5, 'fill': '#14FFFFFF', 'visible_if': vis})
-        out.append({'type': 'path', 'x': x + 2, 'y': ry + (row_h - 30) / 2, 'w': 30, 'h': 30, 'viewbox': [0, 0, 24, 24],
-                    'd': f'{{table(icon, {u}.kind{k})}}', 'fill': '@gold', 'stroke': '@edge', 'stroke_width': 1,
-                    'visible_if': vis})
+        out += item_icon(x, ry + (row_h - 32) / 2, 32, u, k, vis)
         out.append(text(x + 44, ry, w - 160, row_h, f'{{{u}.item{k}}}', row_h * 0.56, visible_if=vis))
         out.append(text(x + w - 110, ry, 110, row_h, f'{{{u}.uses{k}}}', row_h * 0.56, align='right',
                         color='@label', visible_if=vis))
@@ -535,9 +520,7 @@ def item_details(x, y, w, rows, row_h, u='units[focus]'):
         weapon = f"{vis} && {u}.kind{k} != 'item'"
         out.append({'type': 'rect', 'x': x - 8, 'y': ry + 2, 'w': w + 16, 'h': row_h - 8, 'radius': 6,
                     'fill': '#12FFFFFF', 'visible_if': vis})
-        out.append({'type': 'path', 'x': x, 'y': ry + 12, 'w': 34, 'h': 34, 'viewbox': [0, 0, 24, 24],
-                    'd': f'{{table(icon, {u}.kind{k})}}', 'fill': '@gold', 'stroke': '@edge', 'stroke_width': 1,
-                    'visible_if': vis})
+        out += item_icon(x - 4, ry + 8, 40, u, k, vis)
         out.append(text(x + 46, ry + 6, w * 0.55, row_h * 0.42, f'{{{u}.item{k}}}', row_h * 0.34, visible_if=vis))
         out.append(text(x + w - 150, ry + 6, 150, row_h * 0.42, f'{{{u}.uses{k}}} / {{{u}.maxuses{k}}}',
                         row_h * 0.3, color='@label', align='right', visible_if=vis))
