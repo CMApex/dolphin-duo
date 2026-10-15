@@ -105,9 +105,22 @@ jobs:
 
       - name: Collect APK
         run: |
+          # Single-ABI builds can place the APK under intermediates/ instead of outputs/.
+          find Source/Android/app/build -name '*.apk' -not -path '*androidTest*' -printf '%s %p\n'
+          apk=$(find Source/Android/app/build -name '*.apk' -path '*debug*' -not -path '*androidTest*' \
+                | head -n 1)
+          [ -n "$apk" ] || { echo "::error title=No APK::Gradle produced no debug APK"; exit 1; }
+
+          # A test-only APK cannot be installed from a file manager or browser.
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2
+          if "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -q 'testOnly'; then
+            echo "::error title=Test-only APK::$apk is marked android:testOnly"
+            exit 1
+          fi
+
           short=$(git rev-parse --short HEAD)
           mkdir -p out
-          cp Source/Android/app/build/outputs/apk/debug/*.apk "out/dolphin-duo-${short}-arm64-debug.apk"
+          cp "$apk" "out/dolphin-duo-${short}-arm64-debug.apk"
           ls -la out
 
       - name: Upload artifact
