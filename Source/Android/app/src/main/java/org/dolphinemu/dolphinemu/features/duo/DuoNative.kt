@@ -26,6 +26,9 @@ object DuoNative {
     /** Rescans installed companions and reloads the one for the running game. */
     external fun reload()
 
+    /** Path of a PNG for a "disc:" image of the running game, decoding it on first use; or null. */
+    external fun resolveDiscImage(source: String): String?
+
     external fun getCompanionsDirectory(): String
 
     external fun getWatchesDirectory(): String

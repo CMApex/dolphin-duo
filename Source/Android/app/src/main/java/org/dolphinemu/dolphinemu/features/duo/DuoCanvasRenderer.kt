@@ -41,6 +41,7 @@ class DuoCanvasRenderer {
 
     private val typefaces = HashMap<String, Typeface>()
     private val bitmaps = HashMap<String, Bitmap?>()
+    private val discFailures = HashMap<String, Long>()
     private val paths = LinkedHashMap<String, Path?>(64, 0.75f, true)
     private var directory: String? = null
 
@@ -53,6 +54,7 @@ class DuoCanvasRenderer {
             directory = companionDirectory
             typefaces.clear()
             bitmaps.clear()
+            discFailures.clear()
         }
         val scale = min(viewWidth / info.width, viewHeight / info.height)
         val dx = (viewWidth - info.width * scale) / 2f
@@ -286,8 +288,56 @@ class DuoCanvasRenderer {
         val bitmap = loadBitmap(e.optString("src")) ?: return
         val tint = color(e, "tint")
         bitmapPaint.colorFilter = tint?.let { PorterDuffColorFilter(it, PorterDuff.Mode.SRC_IN) }
-        c.drawBitmap(bitmap, null, box(e), bitmapPaint)
+        val r = box(e)
+        val flip = e.num("flip_x", 0f) != 0f
+        if (flip) {
+            // Mirror around the box's centre (end caps drawn from one texture).
+            c.save()
+            c.scale(-1f, 1f, r.centerX(), r.centerY())
+        }
+        val crop = e.optJSONArray("crop")
+        val sx = crop?.optDouble(0)?.toFloat() ?: 0f
+        val sy = crop?.optDouble(1)?.toFloat() ?: 0f
+        val sw = crop?.optDouble(2)?.toFloat() ?: bitmap.width.toFloat()
+        val sh = crop?.optDouble(3)?.toFloat() ?: bitmap.height.toFloat()
+        val slice = e.optJSONArray("slice")
+        if (slice == null) {
+            drawPart(c, bitmap, sx, sy, sx + sw, sy + sh, r.left, r.top, r.right, r.bottom)
+        } else {
+            // Nine-slice: corners keep their size (times slice_scale), edges stretch along one
+            // axis, the centre along both, so a window frame fits any panel.
+            val scale = e.num("slice_scale", 1f)
+            val l = slice.optDouble(0).toFloat()
+            val t = slice.optDouble(1).toFloat()
+            val rr = slice.optDouble(2).toFloat()
+            val b = slice.optDouble(3).toFloat()
+            val xs = floatArrayOf(sx, sx + l, sx + sw - rr, sx + sw)
+            val ys = floatArrayOf(sy, sy + t, sy + sh - b, sy + sh)
+            val xd = floatArrayOf(
+                r.left, r.left + min(l * scale, r.width() / 2), r.right - min(rr * scale, r.width() / 2), r.right
+            )
+            val yd = floatArrayOf(
+                r.top, r.top + min(t * scale, r.height() / 2), r.bottom - min(b * scale, r.height() / 2), r.bottom
+            )
+            for (j in 0 until 3) for (i in 0 until 3) {
+                drawPart(c, bitmap, xs[i], ys[j], xs[i + 1], ys[j + 1], xd[i], yd[j], xd[i + 1], yd[j + 1])
+            }
+        }
+        if (flip) c.restore()
         bitmapPaint.colorFilter = null
+    }
+
+    private val srcRect = android.graphics.Rect()
+    private val dstRect = RectF()
+
+    private fun drawPart(
+        c: Canvas, bitmap: Bitmap, sl: Float, st: Float, sr: Float, sb: Float,
+        dl: Float, dt: Float, dr: Float, db: Float
+    ) {
+        if (sr <= sl || sb <= st || dr <= dl || db <= dt) return
+        srcRect.set(sl.toInt(), st.toInt(), sr.toInt(), sb.toInt())
+        dstRect.set(dl, dt, dr, db)
+        c.drawBitmap(bitmap, srcRect, dstRect, bitmapPaint)
     }
 
     private fun drawPath(c: Canvas, e: JSONObject) {
@@ -488,13 +538,30 @@ class DuoCanvasRenderer {
         }
     }
 
-    private fun loadBitmap(relativePath: String): Bitmap? = bitmaps.getOrPut(relativePath) {
-        val file = resolveInPackage(relativePath) ?: return@getOrPut null
+    private fun loadBitmap(relativePath: String): Bitmap? {
+        if (bitmaps.containsKey(relativePath)) return bitmaps[relativePath]
+        // "disc:" images come from the running game's disc, decoded once into Duo's cache. A miss
+        // (no game yet, unreadable disc) is not remembered, so it is retried on a later frame.
+        val isDisc = relativePath.startsWith("disc:")
+        val now = android.os.SystemClock.uptimeMillis()
+        if (isDisc && now - (discFailures[relativePath] ?: Long.MIN_VALUE / 2) < 2000) return null
+        val file = if (isDisc) {
+            DuoNative.resolveDiscImage(relativePath)?.let { File(it) }?.takeIf { it.isFile }
+        } else {
+            resolveInPackage(relativePath)
+        }
+        val bitmap = file?.let { decodeBitmap(it) }
+        if (bitmap != null || !isDisc) bitmaps[relativePath] = bitmap
+        if (bitmap == null && isDisc) discFailures[relativePath] = now
+        return bitmap
+    }
+
+    private fun decodeBitmap(file: File): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         var sample = 1
         while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
-        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+        return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
     /** A file inside the companion's own folder, never outside it. */

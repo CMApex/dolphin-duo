@@ -7,6 +7,7 @@
 #include <jni.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <fmt/format.h>
@@ -137,6 +138,17 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_rel
                                                                                     jobject)
 {
   Duo::Runtime::GetInstance().RequestReload();
+}
+
+JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_resolveDiscImage(
+    JNIEnv* env, jobject, jstring source)
+{
+  std::string error;
+  const std::optional<std::string> path =
+      Duo::Runtime::ResolveDiscImage(GetJString(env, source), &error);
+  if (!path)
+    return nullptr;
+  return ToJString(env, *path);
 }
 
 JNIEXPORT jstring JNICALL
