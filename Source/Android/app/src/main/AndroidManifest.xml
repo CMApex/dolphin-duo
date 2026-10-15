@@ -87,6 +87,12 @@
             android:label="@string/settings"/>
 
         <activity
+            android:name=".features.duo.DuoCompanionsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Dolphin.Main"
+            android:label="@string/duo_companions"/>
+
+        <activity
             android:name=".features.cheats.ui.CheatsActivity"
             android:exported="false"
             android:theme="@style/Theme.Dolphin.Main"

@@ -31,6 +31,7 @@ import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
+import org.dolphinemu.dolphinemu.features.duo.DuoScreenController
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
 import org.dolphinemu.dolphinemu.databinding.ActivityEmulationBinding
@@ -69,6 +70,9 @@ import org.dolphinemu.dolphinemu.utils.ThemeHelper
 import kotlin.math.roundToInt
 
 class EmulationActivity : AppCompatActivity(), ThemeProvider {
+    // Dolphin Duo: the companion screen on dual-screen handhelds.
+    private var duoScreen: DuoScreenController? = null
+
     private var emulationFragment: EmulationFragment? = null
 
     private lateinit var settings: Settings
@@ -220,6 +224,8 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
 
         setInsets()
 
+        duoScreen = DuoScreenController(this)
+
         // Find or create the EmulationFragment
         emulationFragment = supportFragmentManager
             .findFragmentById(R.id.frame_emulation_fragment) as EmulationFragment?
@@ -319,9 +325,18 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         }
 
         DolphinSensorEventListener.setDeviceRotation(windowManager.defaultDisplay.rotation)
+
+        // Settings may have changed while the game was in the background.
+        duoScreen?.refresh()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        duoScreen?.start()
     }
 
     override fun onStop() {
+        duoScreen?.stop()
         super.onStop()
         settings.saveSettings()
     }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
+import org.dolphinemu.dolphinemu.features.duo.DuoCompanionsActivity
 import org.dolphinemu.dolphinemu.activities.UserDataActivity
 import org.dolphinemu.dolphinemu.features.input.model.ControlGroupEnabledSetting
 import org.dolphinemu.dolphinemu.features.input.model.InputMappingBooleanSetting
@@ -504,6 +505,35 @@ class SettingsFragmentPresenter(
                 R.string.time_tracking_description
             )
         )
+
+        sl.add(HeaderSetting(context, R.string.duo_header, 0))
+        sl.add(
+            SwitchSetting(
+                context,
+                BooleanSetting.MAIN_DUO_ENABLED,
+                R.string.duo_enabled,
+                R.string.duo_enabled_description
+            )
+        )
+        sl.add(
+            SwitchSetting(
+                context,
+                BooleanSetting.MAIN_DUO_ALLOW_WRITES,
+                R.string.duo_allow_writes,
+                R.string.duo_allow_writes_description
+            )
+        )
+        sl.add(
+            RunRunnable(
+                context,
+                R.string.duo_companions,
+                R.string.duo_companions_description,
+                0,
+                0,
+                true
+            ) { DuoCompanionsActivity.launch(context) }
+        )
+
 
         val appTheme: AbstractIntSetting = object : AbstractIntSetting {
             override val isOverridden: Boolean

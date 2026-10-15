@@ -163,6 +163,34 @@
     <string name="osd_messages_description">Display messages over the emulation screen area. These messages include memory card writes, video backend and CPU information, and JIT cache clearing.</string>
     <string name="time_tracking">Enable Play Time Tracking</string>
     <string name="time_tracking_description">Tracks the time you spend playing games and shows it in the game details.</string>
+
+    <!-- Dolphin Duo (companion screen for dual-screen handhelds) -->
+    <string name="duo_header">Dolphin Duo</string>
+    <string name="duo_enabled">Companion Screen</string>
+    <string name="duo_enabled_description">On dual-screen devices such as the AYN Thor, shows maps, menus and stats for the running game on the second screen.</string>
+    <string name="duo_allow_writes">Allow Companions to Change Game Memory</string>
+    <string name="duo_allow_writes_description">Lets companion actions edit values in the game, like a cheat would. Always off in RetroAchievements hardcore mode.</string>
+    <string name="duo_companions">Manage Companions</string>
+    <string name="duo_companions_description">Install or remove companion packages.</string>
+    <string name="duo_companions_intro">Companions are small packages that describe what to show on the second screen for a specific game. Each one targets exact game IDs and disc revisions, so it only loads for the version it was written for.</string>
+    <string name="duo_install_companion">Install Companion…</string>
+    <string name="duo_no_companions">No companions installed yet.</string>
+    <string name="duo_folders">Companions folder:
+%1$s
+
+Watches folder (simple address lists, one file per game ID):
+%2$s</string>
+    <string name="duo_for_games">For: %1$s</string>
+    <string name="duo_by_author">By %1$s</string>
+    <string name="duo_companion_broken">This companion has problems and will not load:</string>
+    <string name="duo_uninstall">Uninstall</string>
+    <string name="duo_uninstall_title">Uninstall %1$s?</string>
+    <string name="duo_install">Install</string>
+    <string name="duo_install_title">Install %1$s %2$s?</string>
+    <string name="duo_install_failed">Could not install companion</string>
+    <string name="duo_permissions_header">This companion can:</string>
+    <string name="duo_permission_write">change values in the game's memory</string>
+    <string name="duo_permission_input">press controller buttons for you</string>
     <string name="download_game_covers">Download Game Covers from GameTDB.com</string>
     <string name="show_titles_in_game_list">Show Titles</string>
     <string name="change_theme">Change App Theme</string>
