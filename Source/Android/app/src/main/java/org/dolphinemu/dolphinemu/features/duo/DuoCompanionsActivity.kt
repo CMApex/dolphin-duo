@@ -168,7 +168,7 @@ class DuoCompanionsActivity : AppCompatActivity() {
             })
         }
 
-        body.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+        body.addView(MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
             setText(R.string.duo_uninstall)
             setOnClickListener { confirmUninstall(name, companion.optString("directory")) }
         }, LinearLayout.LayoutParams(
