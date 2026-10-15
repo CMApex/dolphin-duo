@@ -41,9 +41,9 @@ These could not be checked in the environment the first pass was written in:
 - [ ] Path of Radiance: battle forecast, skills, weapon ranks, units that have acted.
 - [ ] Radiant Dawn (RFEE01 rev 1) on the same framework.
 - [ ] **Swap screens**: run the game on the bottom panel and the companion on top.
-- [ ] **Disc assets**: let companions read files from the running disc (`disc:` paths) for map
-      backgrounds and icons, like Eden Duo builds art from the game's own files. Needs Yaz0, RARC/U8,
-      BTI/TPL decoding.
+- [x] **Disc assets**: `disc:` images (TPL, LZ10, `pack` archives) decoded from the running disc,
+      with crop, nine-slice and mirroring. Path of Radiance uses the game's own windows and portraits.
+- [ ] More disc formats: Yaz0, RARC/U8 and BTI for other games.
 - [ ] **GBA link on the second screen** for Four Swords Adventures, Crystal Chronicles and
       Pac-Man Vs., if Dolphin's mGBA integration can be enabled on Android.
 - [ ] **Touch as Wii pointer**: map the companion screen to IR for pointer-heavy games.
@@ -59,6 +59,8 @@ normal merge; Duo touches upstream files in a few small places:
 | File | Change |
 |---|---|
 | `Source/Core/Core/Core.cpp` | Calls the runtime from `OnFrameEnd` and on CPU thread exit. |
+| `Source/Core/Core/ConfigManager.*` | Remembers the booted disc image (`m_disc_path`) for `disc:` images. |
+| `Source/Core/DolphinNoGUI/` | The `DUO_HARNESS` scripting harness. |
 | `Source/Core/Core/Config/MainSettings.*` | `Duo.Enabled`, `Duo.AllowMemoryWrites`. |
 | `Source/Core/Core/CMakeLists.txt`, `Source/UnitTests/Core/CMakeLists.txt` | New sources and test. |
 | `Source/Core/DolphinTool/` | `duo` command. |

@@ -159,14 +159,15 @@ inside `{…}` in text.
 
 * Literals: `12`, `0x1F`, `1.5`, `'text'`, `"text"`, `true`, `false`, `null`
 * Names: values, element fields, system values (`$game_id`, `$revision`, `$title`, `$platform`
-  — `"gc"` or `"wii"` — `$frame`, `$time`, `$page`, `$index`)
+  — `"gc"` or `"wii"` — `$frame`, `$time`, `$page`, `$index`, and `$disc`: true when
+  [`disc:` images](#disc-images) can be loaded)
 * Element access: `units[2].hp`
 * Operators, low to high: `?:`, `||`, `&&`, `|`, `^`, `&`, `== !=`, `< <= > >=`, `<< >>`, `+ -`,
   `* / %`, unary `! - ~`
 * Functions: `min(…)`, `max(…)`, `abs`, `floor`, `ceil`, `round`, `clamp(x, lo, hi)`, `bit(x, n)`,
   `bits(x, shift, width)`, `count(array)`, `table(name, key)`, `default(x, fallback)`, `str(x)`,
   `find(array, 'field', value[, 'field2', value2])` (index of the first matching element, or
-  null) and `countif(array, 'field', value[, 'field2', value2])`
+  null), `countif(array, 'field', value[, 'field2', value2])` and `substr(text, start[, length])`
 * State and layout: names from `state` (see below), and `$layout`, the canvas layout being drawn
 
 Arithmetic with an unavailable value is unavailable, so a failed read shows as `?` instead of a
@@ -310,7 +311,7 @@ templates, so both can follow the game.
 | `text` | `x y w h`, `text`, `font`, `size`, `weight` (`bold`), `color`, `fill2` (gradient), `align` (`left` `center` `right`), `valign` (`top` `middle` `bottom`), `fit` (1: shrink to the width, then ellipsize), `min_size`, `shadow` + `shadow_dx`/`shadow_dy`, `outline` + `outline_width`, `letter_spacing` (em), `case` (`upper`) |
 | `bar` | `x y w h`, `value`, `max`, `fill`/`fill2` (horizontal gradient), `track`/`track2`, `stroke`, `radius`, `count` (segment ticks) with `off` and `gap` |
 | `pips` | `x y w h`, `count`, `filled`, `fill`, `off`, `shape` (`diamond` `circle` `square`), `gap` |
-| `image` | `x y w h`, `src` (a file in the companion folder), `tint` |
+| `image` | `x y w h`, `src` (a file in the companion folder, or a [`disc:` image](#disc-images)), `crop` `[x, y, w, h]` (part of the image, e.g. one icon of an atlas), `slice` `[left, top, right, bottom]` (nine-slice insets in source pixels) with `slice_scale`, `flip_x`, `tint`. `crop` and `slice` entries are expressions. |
 | `path` | `x y w h`, `d` (SVG path data), `viewbox` `[x, y, w, h]`, `fill`, `stroke`, `stroke_width`: icons and ornaments without image files |
 | `grid` | A tile map: `x y w h`, `cols`, `rows`, optional `view_cols`/`view_rows` with `center_x`/`center_y` to show a window that follows something, `source` + `cell` (colour per cell, from an array in row-major `$slot` order), `grid_color`, `grid_width`, `layers` of marks |
 | `group` | `x`, `y`, `elements`: children placed relative to it |
@@ -319,6 +320,37 @@ templates, so both can follow the game.
 `opacity` (0–1) works on everything. Grid `layers` take `source`, `x`, `y` (in cells), `where`,
 `fill`, `stroke`, `shape` (`dot` `square` `diamond` `ring` `cursor`), `size` (fraction of a cell),
 `label` and `action`.
+
+### Disc images
+
+A companion can show the game's own art without shipping any of it: an `image` whose `src` starts
+with `disc:` is read from the player's disc while the game runs, decoded with Dolphin's GameCube
+texture decoders and cached as a PNG under `<Dolphin user folder>/Duo/Cache/<game id>/`.
+
+| `src` | Meaning |
+|---|---|
+| `disc:window/level.tpl#3` | Image 3 of a TPL texture file. |
+| `disc:Face/IKE.cms#13` | `.cms`/`.cmp` (LZ10-compressed) files are decompressed first. |
+| `disc:zmap/bmap01/map.cmp>texpack.tpl#0` | A member of a `pack` archive. |
+
+`src` is a template, so it can follow the game: `"disc:Face/{substr(fid, 4)}.cms#13"` shows the
+portrait of whichever character is selected. Window frames usually need `slice`: corners keep their
+size (times `slice_scale`), edges stretch along one axis and the centre along both, so one texture
+fits any panel. Use `crop` to pick one icon out of an atlas, or one piece of a texture that packs
+several.
+
+`$disc` is true when disc images can be loaded (the game was started from a disc image), so a
+companion can draw its own frames otherwise:
+
+```json
+{ "type": "frame", "style": "window", "x": 16, "y": 16, "w": 600, "h": 120, "visible_if": "!$disc" },
+{ "type": "image", "src": "disc:window/filemenu.cms#2", "x": 16, "y": 16, "w": 600, "h": 120,
+  "slice": [44, 0, 44, 0], "slice_scale": 2, "visible_if": "$disc" }
+```
+
+To find textures, extract the disc with `dolphin-tool extract` and look through its `.tpl`/`.cms`
+files; `dolphin-tool duo preview --disc <image>` decodes the ones a page uses for the desktop
+renderer.
 
 ### Theme
 
