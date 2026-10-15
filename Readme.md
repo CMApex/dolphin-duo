@@ -5,9 +5,7 @@ dual-screen Android handhelds like the **AYN Thor**. The game runs on the top sc
 bottom screen shows a live, touchable **companion** for the game you're playing: maps, unit and
 party stats, inventories, scene views.
 
-<!-- Thor photo: game on the top screen, Path of Radiance companion on the bottom.
-<p align="center"><img src="docs/DolphinDuo/images/thor.jpg" alt="Dolphin Duo on an AYN Thor" width="640"></p>
--->
+<p align="center"><img src="docs/DolphinDuo/images/thor.jpg" alt="Dolphin Duo on an AYN Thor: Fire Emblem: Path of Radiance on the top screen, its companion showing the war map and a unit's stats on the bottom screen" width="480"></p>
 
 Dolphin Duo is **not affiliated with or endorsed by the Dolphin project**. Please report Duo
 problems [here](https://github.com/CMApex/dolphin-duo/issues), not to Dolphin's issue tracker.

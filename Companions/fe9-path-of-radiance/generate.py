@@ -941,7 +941,7 @@ def manifest():
         'id': 'fe9-path-of-radiance',
         'name': 'Path of Radiance',
         'version': '0.1.0',
-        'author': 'Nat McPherson & Claude',
+        'author': 'CMApex & Claude',
         'description': 'Tactical map, unit status and army roster for Fire Emblem: Path of Radiance (NTSC-U).',
         'targets': [{'game_id': 'GFEE01', 'revisions': [0]}],
         'poll_hz': 12,
