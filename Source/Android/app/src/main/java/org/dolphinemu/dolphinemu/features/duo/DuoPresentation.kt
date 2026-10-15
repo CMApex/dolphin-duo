@@ -74,4 +74,6 @@ class DuoPresentation(outerContext: Context, display: Display) :
         DuoNative.triggerAction(action, source, row)
 
     override fun onCompanionSelected(companionId: String) = DuoNative.selectCompanion(companionId)
+
+    override fun onViewport(width: Int, height: Int) = DuoNative.setViewport(width, height)
 }

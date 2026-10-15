@@ -22,8 +22,19 @@ data class DuoSnapshot(
     val notices: List<String>,
     val pages: List<Page>,
     val page: String,
-    val widgets: List<Widget>
+    val widgets: List<Widget>,
+    /** Set for canvas pages: the layout's design canvas and its positioned elements. */
+    val canvas: CanvasInfo? = null,
+    val elements: JSONArray? = null
 ) {
+    data class CanvasInfo(
+        val layout: String,
+        val width: Float,
+        val height: Float,
+        val background: Int?,
+        val fonts: Map<String, String>
+    )
+
     data class Available(val id: String, val name: String, val version: String)
     data class Page(val id: String, val title: String)
 
@@ -114,7 +125,18 @@ data class DuoSnapshot(
                     Page(it.optString("id"), it.optString("title"))
                 },
                 page = json.optString("page", ""),
-                widgets = json.optJSONArray("widgets").objects().mapNotNull { parseWidget(it) }
+                widgets = json.optJSONArray("widgets").objects().mapNotNull { parseWidget(it) },
+                canvas = json.optJSONObject("canvas")?.let { canvas ->
+                    val fonts = canvas.optJSONObject("fonts")
+                    CanvasInfo(
+                        canvas.optString("layout"),
+                        canvas.optDouble("w", 1.0).toFloat().coerceAtLeast(1f),
+                        canvas.optDouble("h", 1.0).toFloat().coerceAtLeast(1f),
+                        parseColor(canvas.optStringOrNull("background")),
+                        fonts?.keys()?.asSequence()?.associateWith { fonts.optString(it) } ?: emptyMap()
+                    )
+                },
+                elements = json.optJSONArray("elements")
             )
         }
 

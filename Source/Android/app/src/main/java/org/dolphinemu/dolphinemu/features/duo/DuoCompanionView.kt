@@ -35,7 +35,13 @@ class DuoCompanionView(context: Context) : View(context) {
         fun onPageSelected(pageId: String)
         fun onAction(action: String, source: String, row: Int)
         fun onCompanionSelected(companionId: String)
+
+        /** The view's size in pixels, so the runtime can pick the closest canvas layout. */
+        fun onViewport(width: Int, height: Int) {}
     }
+
+    private val canvasRenderer = DuoCanvasRenderer()
+    private val canvasHits = ArrayList<DuoCanvasRenderer.Hit>()
 
     var listener: Listener? = null
 
@@ -125,6 +131,12 @@ class DuoCompanionView(context: Context) : View(context) {
         }
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
+            if (snapshot.canvas != null) {
+                val target = canvasHits.lastOrNull { it.rect.contains(e.x, e.y) } ?: return false
+                performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                listener?.onAction(target.action, target.source, target.index)
+                return true
+            }
             val hit = hits.lastOrNull { it.rect.contains(e.x, e.y) } ?: return false
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             hit.onTap()
@@ -162,8 +174,25 @@ class DuoCompanionView(context: Context) : View(context) {
     // ---------------------------------------------------------------------------------------
     // Drawing
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        listener?.onViewport(w, h)
+    }
+
     override fun onDraw(canvas: Canvas) {
         hits.clear()
+        val canvasInfo = snapshot.canvas
+        val elements = snapshot.elements
+        if (canvasInfo != null && elements != null) {
+            // A canvas page draws itself completely, in the companion's own style.
+            canvasHits.clear()
+            canvasRenderer.draw(
+                canvas, width, height, canvasInfo, elements, snapshot.companionDirectory, canvasHits
+            )
+            if (snapshot.errors.isNotEmpty()) drawErrors(canvas, padding, width - padding * 2)
+            drawNotices(canvas)
+            return
+        }
         canvas.drawColor(Palette.BACKGROUND)
 
         var top = drawHeader(canvas)

@@ -15,6 +15,9 @@ object DuoNative {
 
     external fun setPage(page: String)
 
+    /** Size of the companion screen in pixels; picks the closest canvas layout. */
+    external fun setViewport(width: Int, height: Int)
+
     /** [rowArray] is the list or map source the tap came from ("" if none), [row] its index. */
     external fun triggerAction(action: String, rowArray: String, row: Int)
 

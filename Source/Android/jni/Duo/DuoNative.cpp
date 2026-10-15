@@ -3,6 +3,7 @@
 
 // JNI bridge for org.dolphinemu.dolphinemu.features.duo.DuoNative.
 
+#include <algorithm>
 #include <jni.h>
 
 #include <memory>
@@ -110,6 +111,13 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_set
                                                                                      jstring page)
 {
   Duo::Runtime::GetInstance().SetPage(GetJString(env, page));
+}
+
+JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_setViewport(
+    JNIEnv*, jobject, jint width, jint height)
+{
+  Duo::Runtime::GetInstance().SetViewport(static_cast<u32>(std::max(width, 0)),
+                                          static_cast<u32>(std::max(height, 0)));
 }
 
 JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_triggerAction(
