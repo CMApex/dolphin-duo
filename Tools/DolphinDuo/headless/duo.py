@@ -105,6 +105,22 @@ class Dolphin:
     def speed(self, factor):
         return self.cmd(f'speed {factor}')
 
+    def duo_attach(self, width=1240, height=1080):
+        """Attach the companion runtime as if a companion screen of this size were present.
+        Install the companion under <user folder>/Duo/Companions/ first."""
+        return self.cmd(f'duo attach {width}x{height}')
+
+    def duo_page(self, page):
+        return self.cmd(f'duo page {page}')
+
+    def duo_snap(self, path):
+        """Write the companion's latest snapshot; render it with ../preview/render.mjs."""
+        self.cmd(f'duo snap {path}')
+        return path
+
+    def duo_detach(self):
+        return self.cmd('duo detach')
+
     def close(self):
         try:
             self.proc.terminate()

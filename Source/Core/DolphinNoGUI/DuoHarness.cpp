@@ -14,6 +14,11 @@
 //   save <path> | load <path>      save state
 //   speed <factor>                 emulation speed, 0 = unlimited
 //   echo <text>                    write <text> to the log (a barrier for scripts)
+//   duo attach <W>x<H>             attach the companion runtime as an Android screen of that size
+//   duo page <id>                  switch the companion page, as a tab tap would
+//   duo snap <path>                write the latest companion snapshot (JSON, plus "disc_images"
+//                                  mapping each disc: image to its decoded PNG, for the previewer)
+//   duo detach                     detach the companion runtime
 
 #include "DolphinNoGUI/DuoHarness.h"
 
@@ -36,10 +41,14 @@
 #include <unistd.h>
 #endif
 
+#include <fmt/format.h>
+#include <picojson.h>
+
 #include "Common/Config/Config.h"
 #include "Common/StringUtil.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
+#include "Core/Duo/Runtime.h"
 #include "Core/HW/GCPad.h"
 #include "Core/HW/GCPadEmu.h"
 #include "Core/HW/Memmap.h"
@@ -212,6 +221,66 @@ void Execute(const std::string& line)
     float speed = 1.0f;
     in >> speed;
     Config::SetCurrent(Config::MAIN_EMULATION_SPEED, speed);
+  }
+  else if (cmd == "duo")
+  {
+    std::string sub, arg;
+    in >> sub >> arg;
+    Duo::Runtime& runtime = Duo::Runtime::GetInstance();
+    if (sub == "attach")
+    {
+      u32 width = 0, height = 0;
+      if (std::sscanf(arg.c_str(), "%ux%u", &width, &height) != 2)
+        return Log("error usage: duo attach <W>x<H>");
+      runtime.SetViewport(width, height);
+      runtime.SetFrontendAttached(true);
+    }
+    else if (sub == "detach")
+    {
+      runtime.SetFrontendAttached(false);
+    }
+    else if (sub == "page")
+    {
+      runtime.SetPage(arg);
+    }
+    else if (sub == "snap")
+    {
+      const auto snapshot = runtime.GetSnapshot(0);
+      if (!snapshot)
+        return Log("error no snapshot yet");
+      // Resolve disc images the way the Android frontend does, so the previewer can draw them.
+      picojson::value root;
+      const std::string parse_error = picojson::parse(root, snapshot->second);
+      if (!parse_error.empty() || !root.is<picojson::object>())
+        return Log("error bad snapshot: " + parse_error);
+      picojson::object images;
+      if (root.contains("elements") && root.get("elements").is<picojson::array>())
+      {
+        for (const picojson::value& element : root.get("elements").get<picojson::array>())
+        {
+          for (const char* key : {"src", "fallback"})
+          {
+            if (!element.contains(key) || !element.get(key).is<std::string>())
+              continue;
+            const std::string& source = element.get(key).get<std::string>();
+            if (!source.starts_with("disc:") || images.contains(source))
+              continue;
+            std::string error;
+            if (const std::optional<std::string> png = runtime.ResolveDiscImage(source, &error))
+              images[source] = picojson::value(*png);
+            else if (std::string_view(key) == "fallback" || !element.contains("fallback"))
+              Log("warning " + source + ": " + error);
+          }
+        }
+      }
+      root.get<picojson::object>()["disc_images"] = picojson::value(std::move(images));
+      std::ofstream out(arg);
+      out << root.serialize();
+    }
+    else
+    {
+      return Log("error unknown duo command " + sub);
+    }
   }
   else if (cmd != "echo" && !cmd.empty())
   {

@@ -33,6 +33,18 @@ python3 play.py menu.sav - w:10 mem:/tmp/before.raw RIGHT mem:/tmp/after.raw
 Then diff the dumps for the value you are after (`python3` with `open(...).read()` is plenty), and
 check your manifest against them with `dolphin-tool duo preview --mem1`.
 
+To see what a companion shows while the game plays, install it under
+`<user folder>/Duo/Companions/` and attach the runtime as if a companion screen were present:
+
+```python
+d.duo_attach(1240, 1080)          # the AYN Thor's bottom screen; 1024x768 for a 4:3 one
+d.wait(30)
+d.duo_snap('/tmp/snap.json')      # then: node ../preview/render.mjs /tmp/snap.json snap.png
+```
+
+The snapshot is exactly what the Android app receives, plus `disc_images` (decoded PNGs for
+`disc:` images) for the previewer.
+
 Notes:
 
 * Emulation runs unthrottled (about 75 fps for Path of Radiance on two cores with llvmpipe).
