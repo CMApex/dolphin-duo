@@ -500,6 +500,9 @@ void Runtime::LoadForGame(const std::string& game_id, u16 revision)
 
   if (m_loaded)
   {
+    // Text such as character and item names comes from the disc, not the companion package.
+    if (!m_loaded->is_inspector && !m_loaded->manifest->disc_tables.empty())
+      LoadDiscTables(*m_loaded->manifest, SConfig::GetInstance().m_disc_path, game_id, &m_errors);
     m_loaded->evaluator = std::make_unique<Evaluator>(*m_loaded->manifest, DecodeGameText);
     m_page = m_loaded->manifest->pages.empty() ? std::string() : m_loaded->manifest->pages[0].id;
   }

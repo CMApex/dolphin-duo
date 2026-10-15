@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -51,6 +52,12 @@ std::optional<std::vector<u8>> ExtractPackMember(std::span<const u8> pack, std::
 // Decodes image `index` of a GameCube TPL texture file.
 std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::string* error);
 
+// Decodes an Intelligent Systems message table (Fire Emblem's ".m" files) into key -> text, both
+// UTF-8. Keys are Shift-JIS; text is Shift-JIS when `shift_jis` is set (Japanese discs), otherwise
+// Windows-1252.
+std::optional<std::map<std::string, std::string, std::less<>>>
+ParseMessageTable(std::span<const u8> data, bool shift_jis);
+
 // Reads a file from the game partition of a disc image. Thread-safe; opened discs are cached.
 std::optional<std::vector<u8>> ReadDiscFile(const std::string& disc_path, std::string_view file);
 
@@ -59,4 +66,10 @@ std::optional<std::vector<u8>> ReadDiscFile(const std::string& disc_path, std::s
 std::optional<std::string> MaterializeDiscImage(const std::string& disc_path,
                                                 const std::string& cache_directory,
                                                 std::string_view source, std::string* error);
+struct Manifest;
+
+// Fills the manifest's disc-backed tables ("tables": {"msg": "disc:Mess/common.m"}) from the disc.
+// Problems are appended to `errors`; tables that fail stay empty.
+void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::string_view game_id,
+                    std::vector<std::string>* errors);
 }  // namespace Duo

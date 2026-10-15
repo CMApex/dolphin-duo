@@ -895,3 +895,51 @@ TEST(DuoExpression, Substr)
   EXPECT_EQ(Eval("substr(fid, 40)", scope), Duo::Value(""));
   EXPECT_TRUE(Eval("substr(nothing, 1)", scope).IsNull());
 }
+
+TEST(DuoDiscAssets, ParsesMessageTables)
+{
+  // Header (0x20), text "Ike\0Iron Sword\0" (16 bytes), two entries, then the keys.
+  std::vector<u8> m(0x20, 0);
+  const auto put32 = [&](size_t at, u32 v) {
+    for (int i = 0; i < 4; ++i)
+      m[at + i] = static_cast<u8>(v >> (24 - 8 * i));
+  };
+  const std::string text("Ike\0Iron Sword\0", 15);
+  const std::string keys("MPID_IKE\0MIID_IRONSWORD\0", 24);
+  put32(4, static_cast<u32>(text.size()));
+  put32(12, 2);
+  m.insert(m.end(), text.begin(), text.end());
+  const size_t entries = m.size();
+  m.resize(entries + 16);
+  put32(entries + 0, 0);   // "Ike"
+  put32(entries + 4, 0);   // "MPID_IKE"
+  put32(entries + 8, 4);   // "Iron Sword"
+  put32(entries + 12, 9);  // "MIID_IRONSWORD"
+  m.insert(m.end(), keys.begin(), keys.end());
+
+  const auto table = Duo::ParseMessageTable(m, false);
+  ASSERT_TRUE(table.has_value());
+  EXPECT_EQ(table->at("MPID_IKE"), "Ike");
+  EXPECT_EQ(table->at("MIID_IRONSWORD"), "Iron Sword");
+  EXPECT_FALSE(Duo::ParseMessageTable(std::vector<u8>(8, 0), false).has_value());
+}
+
+TEST(DuoManifest, DiscTables)
+{
+  const Duo::Manifest manifest = ParseOrFail(R"json({
+    "format": 1, "id": "t", "name": "T", "version": "1", "targets": [{"game_id": "GFEE01"}],
+    "tables": {"msg": "disc:Mess/common.m", "local": {"1": "one"}},
+    "pages": [{"id": "p", "title": "{default(table(msg, 'MPID_IKE'), 'none')}", "widgets": []}]
+  })json");
+  ASSERT_EQ(manifest.disc_tables.size(), 1u);
+  EXPECT_EQ(manifest.disc_tables.at("msg"), "Mess/common.m");
+  EXPECT_TRUE(manifest.tables.at("msg").empty());  // Filled from the disc when the game runs.
+  EXPECT_EQ(manifest.tables.at("local").at("1"), "one");
+
+  const Duo::ManifestParseResult bad = Duo::ParseManifest(R"json({
+    "format": 1, "id": "t", "name": "T", "version": "1", "targets": [{"game_id": "GFEE01"}],
+    "tables": {"a": "Mess/common.m", "b": "disc:../x.m", "c": "disc:a.m#2"},
+    "pages": [{"id": "p", "title": "P", "widgets": []}]
+  })json");
+  EXPECT_EQ(bad.errors.size(), 3u);
+}

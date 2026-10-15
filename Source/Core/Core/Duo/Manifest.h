@@ -377,6 +377,9 @@ struct Manifest
   std::vector<FieldSpec> values;
   std::vector<ArraySpec> arrays;
   std::map<std::string, std::map<std::string, std::string>, std::less<>> tables;
+  // Tables read from the running disc ("msg": "disc:Mess/common.m"): name -> file on the disc.
+  // LoadDiscTables fills `tables` from them when the companion loads.
+  std::map<std::string, std::string, std::less<>> disc_tables;
   std::vector<PageSpec> pages;
   std::vector<ActionSpec> actions;
 

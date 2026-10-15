@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "Core/Duo/Manifest.h"
+#include "Core/Duo/DiscAssets.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1507,6 +1508,23 @@ ManifestParseResult ParseManifest(std::string_view json)
         const std::string path = fmt::format("table \"{}\"", table_name);
         if (!IsIdentifier(table_name))
           r.Error(path, "is not a valid name");
+        if (table_value.is<std::string>())
+        {
+          // A message table read from the disc while the game runs.
+          const std::string& source = table_value.get<std::string>();
+          const std::optional<DiscImageRef> ref = ParseDiscImageRef(source);
+          if (!source.starts_with("disc:") || !ref || !ref->member.empty() ||
+              source.find('#') != std::string::npos)
+          {
+            r.Error(path, "must be an object of entries or \"disc:<message file>\"");
+          }
+          else
+          {
+            manifest.disc_tables[table_name] = ref->file;
+            manifest.tables[table_name];  // Exists (empty) until the disc is read.
+          }
+          continue;
+        }
         const picojson::object* entries = r.Object(table_value, path);
         if (!entries)
           continue;

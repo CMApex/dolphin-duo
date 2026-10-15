@@ -288,7 +288,7 @@ int Preview(const std::vector<std::string>& args)
     return EXIT_FAILURE;
   }
 
-  const std::optional<Duo::Manifest> manifest = LoadManifest(ManifestPathFor(positional[0]));
+  std::optional<Duo::Manifest> manifest = LoadManifest(ManifestPathFor(positional[0]));
   if (!manifest)
     return EXIT_FAILURE;
 
@@ -314,6 +314,21 @@ int Preview(const std::vector<std::string>& args)
   Duo::SystemInfo system;
   system.game_id =
       options.is_set_by_user("game-id") ? options["game-id"] : manifest->targets.front().game_id;
+  if (!manifest->disc_tables.empty())
+  {
+    if (!options.is_set_by_user("disc"))
+    {
+      fmt::print(std::cerr, "Note: this companion reads tables from the disc; pass --disc to fill "
+                            "them.\n");
+    }
+    else
+    {
+      std::vector<std::string> errors;
+      Duo::LoadDiscTables(*manifest, options["disc"], system.game_id, &errors);
+      for (const std::string& error : errors)
+        fmt::print(std::cerr, "Warning: {}\n", error);
+    }
+  }
   if (options.is_set_by_user("revision"))
   {
     u16 revision = 0;

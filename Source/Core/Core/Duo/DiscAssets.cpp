@@ -15,7 +15,9 @@
 #include "Common/FileUtil.h"
 #include "Common/Hash.h"
 #include "Common/Image.h"
+#include "Common/StringUtil.h"
 #include "Common/Swap.h"
+#include "Core/Duo/Manifest.h"
 #include "DiscIO/DiscExtractor.h"
 #include "DiscIO/Filesystem.h"
 #include "DiscIO/Volume.h"
@@ -239,6 +241,79 @@ std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::s
                 image.rgba.begin() + static_cast<size_t>(y) * width * 4);
   }
   return image;
+}
+
+std::optional<std::map<std::string, std::string, std::less<>>>
+ParseMessageTable(std::span<const u8> data, bool shift_jis)
+{
+  // u32 file size, u32 text size, u32 0, u32 entry count, 16 bytes padding, the text, then
+  // (u32 text offset, u32 key offset) per entry, then the key strings.
+  if (data.size() < 0x20)
+    return std::nullopt;
+  const u32 text_size = Read32(data, 4);
+  const u32 count = Read32(data, 12);
+  const u64 entries = 0x20 + u64{text_size};
+  const u64 keys = entries + u64{count} * 8;
+  if (count > 100000 || keys > data.size())
+    return std::nullopt;
+
+  const auto c_string = [&](u64 offset) -> std::optional<std::string_view> {
+    if (offset >= data.size())
+      return std::nullopt;
+    const auto begin = data.begin() + static_cast<std::ptrdiff_t>(offset);
+    const auto end = std::find(begin, data.end(), u8{0});
+    return std::string_view(reinterpret_cast<const char*>(&*begin),
+                            static_cast<size_t>(end - begin));
+  };
+
+  std::map<std::string, std::string, std::less<>> messages;
+  for (u32 i = 0; i < count; ++i)
+  {
+    const u32 text_offset = Read32(data, entries + i * 8);
+    const u32 key_offset = Read32(data, entries + i * 8 + 4);
+    const std::optional<std::string_view> key = c_string(keys + key_offset);
+    const std::optional<std::string_view> text = c_string(0x20 + u64{text_offset});
+    if (!key || !text || text_offset >= text_size)
+      continue;
+    messages.insert_or_assign(SHIFTJISToUTF8(*key),
+                              shift_jis ? SHIFTJISToUTF8(*text) : CP1252ToUTF8(*text));
+  }
+  return messages;
+}
+
+void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::string_view game_id,
+                    std::vector<std::string>* errors)
+{
+  const auto report = [&](std::string message) {
+    if (errors)
+      errors->push_back(std::move(message));
+  };
+  // Japanese releases (game ID ending in J) store their text in Shift-JIS.
+  const bool shift_jis = game_id.size() >= 4 && game_id[3] == 'J';
+  for (const auto& [name, source] : manifest.disc_tables)
+  {
+    if (disc_path.empty())
+    {
+      report(fmt::format("table \"{}\": the game was not started from a disc image", name));
+      continue;
+    }
+    std::optional<std::vector<u8>> data = ReadDiscFile(disc_path, source);
+    if (!data)
+    {
+      report(fmt::format("table \"{}\": could not read {} from the disc", name, source));
+      continue;
+    }
+    std::optional<std::map<std::string, std::string, std::less<>>> messages =
+        ParseMessageTable(MaybeDecompress(std::move(*data)), shift_jis);
+    if (!messages)
+    {
+      report(fmt::format("table \"{}\": {} is not a message table", name, source));
+      continue;
+    }
+    auto& table = manifest.tables[name];
+    for (auto& [key, text] : *messages)
+      table.insert_or_assign(key, std::move(text));
+  }
 }
 
 std::optional<std::vector<u8>> ReadDiscFile(const std::string& disc_path, std::string_view file)
