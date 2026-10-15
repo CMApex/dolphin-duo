@@ -1,5 +1,11 @@
 # Dolphin - A GameCube and Wii Emulator
 
+> **This is Dolphin Duo**, a fork of Dolphin for dual-screen Android handhelds like the AYN Thor.
+> The game runs on the main screen and the second screen shows a live, touchable companion for the
+> game you are playing: maps, party stats, inventories, quick actions. See
+> [docs/DolphinDuo](docs/DolphinDuo/README.md). It is not affiliated with or endorsed by the Dolphin
+> project; please report Duo issues here, not upstream.
+
 [Homepage](https://dolphin-emu.org/) | [Project Site](https://github.com/dolphin-emu/dolphin) | [Buildbot](https://dolphin.ci/) | [Forums](https://forums.dolphin-emu.org/) | [Wiki](https://wiki.dolphin-emu.org/) | [GitHub Wiki](https://github.com/dolphin-emu/dolphin/wiki) | [Issue Tracker](https://bugs.dolphin-emu.org/projects/emulator/issues) | [Coding Style](https://github.com/dolphin-emu/dolphin/blob/master/Contributing.md) | [Transifex Page](https://app.transifex.com/dolphinemu/dolphin-emu/dashboard/) | [Analytics](https://mon.dolphin-emu.org/)
 
 Dolphin is an emulator for running GameCube and Wii games on Windows,

@@ -1,0 +1,124 @@
+{
+  "//": "Dolphin Duo companion template. Every address below is a PLACEHOLDER that matches the fake memory written by make_demo_dump.py, not any real game. Replace the target and addresses with ones you found for your game (Dolphin's memory view, cheat search or Dolphin Memory Engine).",
+
+  "format": 1,
+  "id": "template-companion",
+  "name": "Template Companion",
+  "version": "0.1.0",
+  "author": "You",
+  "description": "Shows every widget type. Copy this folder, rename the id and start replacing addresses.",
+
+  "targets": [
+    { "game_id": "DUOD01", "revisions": [0] }
+  ],
+
+  "//capabilities": "Remove what you do not use; the installer shows players what a companion can do.",
+  "capabilities": ["write_memory", "input"],
+  "poll_hz": 20,
+
+  "tables": {
+    "class": { "0": "Lord", "1": "Archer", "2": "Mage", "3": "Healer", "0x10": "Sage" }
+  },
+
+  "values": [
+    { "name": "gold", "type": "u32", "address": "0x80003000" },
+    { "name": "chapter", "type": "u8", "address": "0x80003004" },
+    { "name": "in_battle", "type": "bool", "address": "0x80003005" },
+    { "name": "turn", "type": "u16", "address": "0x80003006" },
+    { "name": "unit_count", "type": "u8", "address": "0x80003008" },
+    { "name": "cursor_x", "type": "f32", "address": "0x8000300C" },
+    { "name": "cursor_y", "type": "f32", "address": "0x80003010" },
+    { "name": "save_name", "type": "string", "address": "0x80003020", "length": 16 },
+
+    { "//": "A pointer chain: read the pointer at 0x80003040, add 0x8, read again, then the value is at +0x4.",
+      "name": "boss_hp", "type": "u16", "address": "0x80003040", "offsets": ["0x8", "0x4"] },
+    { "name": "boss_max_hp", "type": "u16", "address": "0x80003040", "offsets": ["0x8", "0x6"] },
+
+    { "name": "army_hp", "expr": "units[0].hp + units[1].hp + units[2].hp" },
+    { "name": "alive", "expr": "count(units)" }
+  ],
+
+  "arrays": [
+    {
+      "name": "units",
+      "address": "0x80004000",
+      "stride": "0x20",
+      "count_expr": "unit_count",
+      "max_count": 64,
+      "where": "hp > 0",
+      "fields": [
+        { "name": "name", "type": "string", "offset": "0x00", "length": 12 },
+        { "name": "hp", "type": "u8", "offset": "0x10" },
+        { "name": "max_hp", "type": "u8", "offset": "0x11" },
+        { "name": "class", "type": "u8", "offset": "0x12" },
+        { "name": "level", "type": "u8", "offset": "0x13" },
+        { "name": "x", "type": "s16", "offset": "0x14" },
+        { "name": "y", "type": "s16", "offset": "0x16" },
+        { "name": "class_name", "expr": "default(table(class, class), 'Unknown')" },
+        { "name": "hurt", "expr": "hp * 2 < max_hp" }
+      ]
+    }
+  ],
+
+  "pages": [
+    {
+      "id": "army",
+      "title": "Army ({alive})",
+      "widgets": [
+        { "type": "heading", "text": "Chapter {chapter}" },
+        { "type": "stats", "columns": 3, "items": [
+          { "label": "Gold", "value": "{gold}" },
+          { "label": "Turn", "value": "{in_battle ? turn : '-'}" },
+          { "label": "Save", "value": "{save_name}" }
+        ]},
+        { "type": "list", "source": "units",
+          "text": "{name}",
+          "detail": "{class_name} - Lv {level}",
+          "badge": "{hurt ? 'HURT' : ''}",
+          "color": "{hurt ? '#ff8a80' : ''}",
+          "bar": "hp", "bar_max": "max_hp",
+          "action": "heal_unit",
+          "empty": "Nobody is standing." },
+        { "type": "buttons", "buttons": [
+          { "label": "Open menu", "action": "open_menu" },
+          { "label": "Map", "action": "go_map", "enabled_if": "in_battle" }
+        ]}
+      ]
+    },
+    {
+      "id": "battle",
+      "title": "Battle",
+      "visible_if": "in_battle",
+      "widgets": [
+        { "type": "bar", "label": "Boss", "value": "boss_hp", "max": "boss_max_hp",
+          "text": "{boss_hp}/{boss_max_hp}",
+          "color": "{boss_hp * 4 < boss_max_hp ? '#ff5252' : '#ffb74d'}" },
+        { "type": "divider" },
+        { "type": "text", "style": "caption",
+          "text": "Cursor at ({cursor_x:.1}, {cursor_y:.1}). Army HP {army_hp}." }
+      ]
+    },
+    {
+      "id": "map",
+      "title": "Map",
+      "visible_if": "in_battle",
+      "widgets": [
+        { "type": "map", "bounds": [0, 0, 16, 16], "aspect": 1.0,
+          "points": [
+            { "source": "units", "x": "x + 0.5", "y": "y + 0.5", "label": "{name}",
+              "color": "{hurt ? '#ff8a80' : '#82b1ff'}", "action": "heal_unit" },
+            { "x": "cursor_x", "y": "cursor_y", "shape": "player" }
+          ] }
+      ]
+    }
+  ],
+
+  "actions": [
+    { "id": "heal_unit", "label": "Heal",
+      "steps": [ { "write": "units[].hp", "value": "max_hp" } ] },
+    { "id": "go_map",
+      "steps": [ { "page": "map" } ] },
+    { "id": "open_menu",
+      "steps": [ { "press": "START", "frames": 4 }, { "wait": 10 }, { "press": "A", "frames": 4 } ] }
+  ]
+}
