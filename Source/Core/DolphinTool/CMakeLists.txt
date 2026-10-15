@@ -4,6 +4,8 @@ add_executable(dolphin-tool
   ExtractCommand.h
   ConvertCommand.cpp
   ConvertCommand.h
+  DuoCommand.cpp
+  DuoCommand.h
   VerifyCommand.cpp
   VerifyCommand.h
   HeaderCommand.cpp
