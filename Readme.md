@@ -41,9 +41,11 @@ written for one game. It reads the game's memory between frames and draws pages 
 screen. Companions can only change memory or press buttons if they ask for it, and the installer
 shows you which ones do before you install.
 
-| Game | ID | What it shows |
-|---|---|---|
-| [Fire Emblem: Path of Radiance](Companions/fe9-path-of-radiance/README.md) | `GFEE01` | Live war-map minimap, unit under the cursor, army roster, full status, battle and scene views, in the game's own style |
+Tap a game's name to download its companion (the newest build from `master`).
+
+| Game | ID | What it shows | |
+|---|---|---|---|
+| [Fire Emblem: Path of Radiance](https://github.com/CMApex/dolphin-duo/releases/download/duo-latest-master/fe9-path-of-radiance.zip) | `GFEE01` | Live war-map minimap, unit under the cursor, army roster, full status, battle and scene views, in the game's own style | [Details](Companions/fe9-path-of-radiance/README.md) |
 
 **Your disc, your assets.** Companions don't ship any of the game's art or text. Things like
 portraits, item icons, window frames, and character and item names are read from **your own disc
@@ -51,10 +53,15 @@ image** while you play. Nothing from the games lives in this repository.
 
 ### Installing a companion
 
-1. Zip the companion's folder (for example `Companions/fe9-path-of-radiance`).
+1. Download the companion's zip from the table above. Every test build on the
+   [Releases page](https://github.com/CMApex/dolphin-duo/releases) also carries the companions
+   from the same commit, so a branch's APK and its companions always match.
 2. In Dolphin Duo, open **Settings → Interface → Dolphin Duo → Manage Companions** and install the
    zip.
 3. Start the game. The companion appears on the second screen.
+
+Working on a companion yourself? Zip its folder (with `manifest.json` at the top) and install that
+instead.
 
 With no companion installed for a game, the second screen shows the **Inspector**: the game ID,
 the revision and a live view of any addresses you list in `Duo/Watches/<GAMEID>.txt`.

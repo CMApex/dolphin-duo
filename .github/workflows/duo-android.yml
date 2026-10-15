@@ -127,11 +127,52 @@ jobs:
           cp "$apk" "out/dolphin-duo-${short}-arm64-debug.apk"
           ls -la out
 
+      - name: Package companions
+        # One installable zip per folder in Companions/, named after the folder, so the README can
+        # link straight to releases/download/duo-latest-master/<folder>.zip. Built from the same
+        # commit as the APK, so a companion always matches the runtime it was published with.
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys, zipfile
+
+          # Generators and research tools stay in the repo; players only need what the runtime reads.
+          SKIP_DIRS = {"tools", "__pycache__", ".git"}
+          SKIP_SUFFIXES = {".py", ".pyc"}
+
+          out = pathlib.Path("out")
+          companions = pathlib.Path("Companions")
+          folders = sorted(p for p in companions.iterdir() if p.is_dir()) if companions.is_dir() else []
+          for folder in folders:
+              manifest = folder / "manifest.json"
+              if not manifest.is_file():
+                  continue
+              try:
+                  json.loads(manifest.read_text(encoding="utf-8"))
+              except ValueError as error:
+                  print(f"::error title=Broken companion::{manifest}: {error}")
+                  sys.exit(1)
+              target = out / f"{folder.name}.zip"
+              with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+                  for path in sorted(folder.rglob("*")):
+                      relative = path.relative_to(folder)
+                      if path.is_dir() or path.suffix in SKIP_SUFFIXES:
+                          continue
+                      if any(part in SKIP_DIRS for part in relative.parts):
+                          continue
+                      # manifest.json sits at the root of the zip, where the installer looks first.
+                      archive.write(path, relative.as_posix())
+              names = zipfile.ZipFile(target).namelist()
+              print(f"{target} ({target.stat().st_size} bytes): {', '.join(names)}")
+          PY
+          ls -la out
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dolphin-duo-apk
-          path: out/*.apk
+          path: |
+            out/*.apk
+            out/*.zip
 
       - name: Publish rolling pre-release
         if: github.event_name != 'pull_request'
@@ -140,8 +181,14 @@ jobs:
         run: |
           tag="duo-latest-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
           gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$tag" out/*.apk \
+          notes="Debug build of \`$GITHUB_REF_NAME\` at $GITHUB_SHA (arm64-v8a). Installs as \"Dolphin Duo Debug\" alongside regular Dolphin. Later test builds install over this one."
+          if ls out/*.zip > /dev/null 2>&1; then
+            notes="$notes
+
+          The .zip files are the companions from the same commit. Install them from Settings → Interface → Dolphin Duo → Manage Companions."
+          fi
+          gh release create "$tag" out/* \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "Dolphin Duo test build ($GITHUB_REF_NAME)" \
-            --notes "Debug build of \`$GITHUB_REF_NAME\` at $GITHUB_SHA (arm64-v8a). Installs as \"Dolphin Duo Debug\" alongside regular Dolphin. Later test builds install over this one."
+            --notes "$notes"
