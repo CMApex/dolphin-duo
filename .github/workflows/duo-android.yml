@@ -1,0 +1,94 @@
+# Builds a Dolphin Duo debug APK (arm64-v8a, for the AYN Thor and similar handhelds).
+#
+# Every run uploads the APK as a workflow artifact. Pushes (not pull requests) also publish it as a
+# rolling pre-release named "duo-latest-<branch>", so the newest build can be downloaded directly
+# on a phone or handheld from the repository's Releases page.
+
+name: Dolphin Duo Android APK
+
+on:
+  push:
+    branches: [master, "dolphin-duo/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: duo-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: Check out (full history, for version numbers)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Fetch submodules
+        run: |
+          # Qt, FFmpeg-bin and MoltenVK are prebuilt Windows/macOS binaries Android never uses.
+          paths=$(git config --file .gitmodules --get-regexp '\.path$' | awk '{print $2}' \
+                  | grep -Ev '^Externals/(Qt|FFmpeg-bin|MoltenVK)$')
+          git submodule update --init --recursive --depth 1 --jobs 8 $paths \
+            || git submodule update --init --recursive --jobs 8 $paths
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the NDK Dolphin expects
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+          ndk=$(grep -oP 'ndkVersion = "\K[^"]+' Source/Android/app/build.gradle.kts)
+          echo "NDK $ndk"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
+          cmake --version | head -1
+
+      - name: Use the Dolphin Duo debug signing key
+        # A fixed debug key means each new test build installs over the previous one instead of
+        # forcing an uninstall, which would delete Dolphin's user folder and installed companions.
+        run: |
+          mkdir -p ~/.android
+          cp Source/Android/duo-debug.keystore ~/.android/debug.keystore
+
+      - name: Build debug APK (arm64-v8a)
+        working-directory: Source/Android
+        run: ./gradlew assembleDebug -Pandroid.injected.build.abi=arm64-v8a --stacktrace
+
+      - name: Collect APK
+        run: |
+          short=$(git rev-parse --short HEAD)
+          mkdir -p out
+          cp Source/Android/app/build/outputs/apk/debug/*.apk "out/dolphin-duo-${short}-arm64-debug.apk"
+          ls -la out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dolphin-duo-apk
+          path: out/*.apk
+
+      - name: Publish rolling pre-release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="duo-latest-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" out/*.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Dolphin Duo test build ($GITHUB_REF_NAME)" \
+            --notes "Debug build of \`$GITHUB_REF_NAME\` at $GITHUB_SHA (arm64-v8a). Installs as \"Dolphin Duo Debug\" alongside regular Dolphin. Later test builds install over this one."
