@@ -5,8 +5,10 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -261,6 +263,17 @@ int Preview(const std::vector<std::string>& args)
   parser.add_option("-j", "--json")
       .action("store_true")
       .help("Optional. Print the raw snapshot JSON the companion screen receives.");
+  parser.add_option("--layout")
+      .action("store")
+      .help("Optional. Canvas layout id to render (default: the first layout).");
+  parser.add_option("--screen")
+      .action("store")
+      .help("Optional. Screen size WxH; picks the closest canvas layout like the device does.")
+      .metavar("WxH");
+  parser.add_option("--state")
+      .action("store")
+      .help("Optional. UI state overrides, e.g. \"sel=3,tab=1\" (numbers only).")
+      .metavar("LIST");
 
   const optparse::Values& options = parser.parse_args(args);
   const std::vector<std::string>& positional = parser.args();
@@ -309,17 +322,78 @@ int Preview(const std::vector<std::string>& args)
   system.title = manifest->name;
   system.is_wii = !options["mem2"].empty();
 
-  Duo::Evaluator evaluator(*manifest);
+  // Decode Shift-JIS game text the same way the runtime does.
+  Duo::Evaluator evaluator(*manifest, [](Duo::TextEncoding encoding, std::span<const u8> bytes) {
+    const std::string_view raw(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    return encoding == Duo::TextEncoding::ShiftJIS ? SHIFTJISToUTF8(raw) : std::string(raw);
+  });
+  if (options.is_set_by_user("state"))
+  {
+    for (const std::string& entry : SplitString(options["state"], ','))
+    {
+      const size_t equals = entry.find('=');
+      double number = 0;
+      if (equals == std::string::npos || !TryParse(entry.substr(equals + 1), &number))
+      {
+        fmt::print(std::cerr, "Error: bad --state entry \"{}\" (expected name=number)\n", entry);
+        return EXIT_FAILURE;
+      }
+      evaluator.SetState(entry.substr(0, equals), Duo::Value(number));
+    }
+  }
   evaluator.Sample(memory, system);
 
+  std::string layout = options["layout"];
+  if (options.is_set_by_user("screen"))
+  {
+    u32 width = 0, height = 0;
+    const std::vector<std::string> parts = SplitString(options["screen"], 'x');
+    if (parts.size() != 2 || !TryParse(parts[0], &width) || !TryParse(parts[1], &height))
+    {
+      fmt::print(std::cerr, "Error: bad --screen (expected WxH, e.g. 1240x1080)\n");
+      return EXIT_FAILURE;
+    }
+    if (const Duo::LayoutSpec* chosen = manifest->ChooseLayout(width, height))
+      layout = chosen->id;
+  }
+
   std::string page = options["page"];
-  const picojson::value snapshot = evaluator.Render(page);
+  picojson::value snapshot = evaluator.Render(page, layout);
   if (options.is_set_by_user("json"))
   {
+    // Like the device snapshot, name the companion folder so previews can find fonts and images.
+    std::filesystem::path folder = std::filesystem::absolute(positional[0]);
+    if (folder.filename() == "manifest.json")
+      folder = folder.parent_path();
+    const std::string directory = folder.lexically_normal().string() + "/";
+    picojson::object companion;
+    companion["id"] = picojson::value(manifest->id);
+    companion["name"] = picojson::value(manifest->name);
+    companion["version"] = picojson::value(manifest->version);
+    companion["directory"] = picojson::value(directory);
+    snapshot.get<picojson::object>()["companion"] = picojson::value(std::move(companion));
     fmt::print("{}\n", snapshot.serialize(true));
     return EXIT_SUCCESS;
   }
   PrintPage(snapshot);
+  if (snapshot.contains("canvas"))
+  {
+    const picojson::value& canvas = snapshot.get("canvas");
+    fmt::print("\nCanvas page, layout \"{}\" ({}x{}): {} elements. Render it with "
+               "Tools/DolphinDuo/preview (pass --json).\n",
+               Str(canvas.get("layout")), canvas.get("w").get<double>(),
+               canvas.get("h").get<double>(),
+               snapshot.get("elements").get<picojson::array>().size());
+    for (const picojson::value& element : snapshot.get("elements").get<picojson::array>())
+    {
+      if (element.contains("text") && element.get("text").is<std::string>() &&
+          !element.get("text").get<std::string>().empty())
+      {
+        fmt::print("  text @({:.0f},{:.0f}): {}\n", element.get("x").get<double>(),
+                   element.get("y").get<double>(), element.get("text").get<std::string>());
+      }
+    }
+  }
   return EXIT_SUCCESS;
 }
 }  // namespace
@@ -330,7 +404,8 @@ int DuoCommand(const std::vector<std::string>& args)
     fmt::print(std::cerr,
                "usage: dolphin-tool duo validate <companion folder or manifest.json>\n"
                "       dolphin-tool duo preview <companion> --mem1 mem1.raw [--mem2 mem2.raw]\n"
-               "                                [--page ID] [--json]\n");
+               "                                [--page ID] [--layout ID | --screen WxH]\n"
+               "                                [--state name=value,...] [--json]\n");
     return EXIT_FAILURE;
   };
   if (args.empty())
