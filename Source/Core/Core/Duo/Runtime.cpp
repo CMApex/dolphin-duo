@@ -391,6 +391,12 @@ void Runtime::Unload()
 void Runtime::LoadForGame(const std::string& game_id, u16 revision)
 {
   Unload();
+  {
+    std::lock_guard lock(m_mutex);
+    m_disc_path = SConfig::GetInstance().m_disc_path;
+    m_disc_game_id = game_id;
+    m_disc_revision = revision;
+  }
   m_available.clear();
   m_status = "inspector";
   m_message.clear();
@@ -502,7 +508,7 @@ void Runtime::LoadForGame(const std::string& game_id, u16 revision)
   {
     // Text such as character and item names comes from the disc, not the companion package.
     if (!m_loaded->is_inspector && !m_loaded->manifest->disc_tables.empty())
-      LoadDiscTables(*m_loaded->manifest, SConfig::GetInstance().m_disc_path, game_id, &m_errors);
+      LoadDiscTables(*m_loaded->manifest, m_disc_path, game_id, &m_errors);
     m_loaded->evaluator = std::make_unique<Evaluator>(*m_loaded->manifest, DecodeGameText);
     m_page = m_loaded->manifest->pages.empty() ? std::string() : m_loaded->manifest->pages[0].id;
   }
@@ -686,6 +692,12 @@ void Runtime::Publish()
 void Runtime::Shutdown()
 {
   Unload();
+  {
+    std::lock_guard lock(m_mutex);
+    m_disc_path.clear();
+    m_disc_game_id.clear();
+  }
+  CloseDiscFiles();
   m_available.clear();
   m_notices.clear();
   m_game_known = false;
@@ -699,19 +711,28 @@ void Runtime::Shutdown()
   ++m_sequence;
 }
 
-std::optional<std::string> Runtime::ResolveDiscImage(std::string_view source, std::string* error)
+std::optional<std::string> Runtime::ResolveDiscImage(std::string_view source,
+                                                     std::string* error) const
 {
-  const SConfig& config = SConfig::GetInstance();
-  const std::string game_id = config.GetGameID();
+  std::string disc_path, game_id;
+  u16 revision;
+  {
+    std::lock_guard lock(m_mutex);
+    disc_path = m_disc_path;
+    game_id = m_disc_game_id;
+    revision = m_disc_revision;
+  }
   if (game_id.empty() || !IsSafeName(game_id))
   {
     if (error)
       *error = "no game is running";
     return std::nullopt;
   }
-  return MaterializeDiscImage(config.m_disc_path,
-                              GetRootDirectory() + "Cache" DIR_SEP + game_id + DIR_SEP, source,
-                              error);
+  // Per revision, in case a revision changes an asset.
+  return MaterializeDiscImage(
+      disc_path, fmt::format("{}Cache{}{}_r{}{}", GetRootDirectory(), DIR_SEP, game_id, revision,
+                             DIR_SEP),
+      source, error);
 }
 
 std::optional<std::pair<u64, std::string>> Runtime::GetSnapshot(u64 after) const

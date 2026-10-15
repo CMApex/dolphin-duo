@@ -80,8 +80,9 @@ public:
   static std::vector<InstalledCompanion> ScanCompanions();
 
   // Returns a PNG file for a "disc:" image of the running game, decoding it into
-  // <User>/Duo/Cache/<game id>/ on first use. Any thread.
-  static std::optional<std::string> ResolveDiscImage(std::string_view source, std::string* error);
+  // <User>/Duo/Cache/<game id>_r<revision>/ on first use. Any thread; may read the disc, so call it
+  // off the UI thread.
+  std::optional<std::string> ResolveDiscImage(std::string_view source, std::string* error) const;
 
 private:
   Runtime();
@@ -122,6 +123,11 @@ private:
   std::vector<std::pair<u64, std::string>> m_notices;  // (expiry frame, text)
   ActionRunner m_runner;
   std::string m_page;
+  // The running game's disc, copied when it loads (under m_mutex) so other threads never read
+  // SConfig while a new game boots.
+  std::string m_disc_path;
+  std::string m_disc_game_id;
+  u16 m_disc_revision = 0;
   u32 m_viewport_width = 0;
   u32 m_viewport_height = 0;
   u64 m_frame = 0;

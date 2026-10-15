@@ -943,3 +943,39 @@ TEST(DuoManifest, DiscTables)
   })json");
   EXPECT_EQ(bad.errors.size(), 3u);
 }
+
+TEST(DuoDiscAssets, ShortPaletteIsPaddedNotOverread)
+{
+  // A 8x4 C8 image whose texels index entry 255, with a palette of just one entry that ends the
+  // file. The decoder must see a zero-filled 256-entry palette, not bytes past the buffer.
+  std::vector<u8> tpl(0x40, 0);
+  const auto put32 = [&](size_t at, u32 v) {
+    for (int i = 0; i < 4; ++i)
+      tpl[at + i] = static_cast<u8>(v >> (24 - 8 * i));
+  };
+  const auto put16 = [&](size_t at, u16 v) {
+    tpl[at] = static_cast<u8>(v >> 8);
+    tpl[at + 1] = static_cast<u8>(v);
+  };
+  put32(0, 0x0020AF30);
+  put32(4, 1);
+  put32(8, 0x0C);
+  put32(0x0C, 0x14);  // Image header.
+  put32(0x10, 0x30);  // Palette header.
+  put16(0x14, 4);     // Height.
+  put16(0x16, 8);     // Width.
+  put32(0x18, 9);     // C8.
+  put32(0x1C, 0x40);  // Data.
+  put16(0x30, 1);     // One palette entry...
+  put32(0x34, 2);     // ...RGB5A3...
+  put32(0x38, 0x60);  // ...at the very end of the file.
+  tpl.resize(0x60, 0xFF);  // 32 texels of value 255.
+  tpl.resize(0x62);
+  put16(0x60, 0xFC00);  // Entry 0: red.
+
+  std::string error;
+  const std::optional<Duo::DecodedImage> image = Duo::DecodeTPL(tpl, 0, &error);
+  ASSERT_TRUE(image.has_value()) << error;
+  EXPECT_EQ(image->rgba[0], 0);  // Entry 255 is padding: transparent black.
+  EXPECT_EQ(image->rgba[3], 0);
+}

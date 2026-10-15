@@ -145,7 +145,7 @@ JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_features_duo_DuoNative_
 {
   std::string error;
   const std::optional<std::string> path =
-      Duo::Runtime::ResolveDiscImage(GetJString(env, source), &error);
+      Duo::Runtime::GetInstance().ResolveDiscImage(GetJString(env, source), &error);
   if (!path)
     return nullptr;
   return ToJString(env, *path);

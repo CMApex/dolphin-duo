@@ -40,7 +40,7 @@ class DuoCompanionView(context: Context) : View(context) {
         fun onViewport(width: Int, height: Int) {}
     }
 
-    private val canvasRenderer = DuoCanvasRenderer()
+    private val canvasRenderer = DuoCanvasRenderer().apply { onAssetLoaded = { invalidate() } }
     private val canvasHits = ArrayList<DuoCanvasRenderer.Hit>()
 
     var listener: Listener? = null

@@ -211,6 +211,7 @@ std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::s
   if (static_cast<u64>(data_offset) + data_size > tpl.size())
     return fail("TPL image data is truncated");
 
+  std::vector<u8> palette;
   const u8* tlut = nullptr;
   TLUTFormat tlut_format = TLUTFormat::IA8;
   if (format == TextureFormat::C4 || format == TextureFormat::C8 ||
@@ -223,7 +224,15 @@ std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::s
     const u32 palette_offset = Read32(tpl, palette_header + 8);
     if (palette_format > 2 || static_cast<u64>(palette_offset) + entries * 2u > tpl.size())
       return fail("broken TPL palette");
-    tlut = tpl.data() + palette_offset;
+    // The decoder indexes the palette by texel value whatever the entry count says, so give it a
+    // zero-filled palette of the format's full size: C4 16, C8 256 and C14X2 16384 entries.
+    const size_t full_entries = format == TextureFormat::C4 ? 16 :
+                                format == TextureFormat::C8 ? 256 :
+                                                              16384;
+    palette.assign(full_entries * 2, 0);
+    std::copy_n(tpl.begin() + palette_offset, std::min<size_t>(entries, full_entries) * 2,
+                palette.begin());
+    tlut = palette.data();
     tlut_format = static_cast<TLUTFormat>(palette_format);
   }
 
@@ -316,12 +325,21 @@ void LoadDiscTables(Manifest& manifest, const std::string& disc_path, std::strin
   }
 }
 
+namespace
+{
+std::mutex s_volumes_mutex;
+std::map<std::string, std::unique_ptr<DiscIO::Volume>> s_volumes;
+}  // namespace
+
+void CloseDiscFiles()
+{
+  std::lock_guard lock(s_volumes_mutex);
+  s_volumes.clear();
+}
+
 std::optional<std::vector<u8>> ReadDiscFile(const std::string& disc_path, std::string_view file)
 {
-  static std::mutex s_mutex;
-  static std::map<std::string, std::unique_ptr<DiscIO::Volume>> s_volumes;
-
-  std::lock_guard lock(s_mutex);
+  std::lock_guard lock(s_volumes_mutex);
   auto it = s_volumes.find(disc_path);
   if (it == s_volumes.end())
   {

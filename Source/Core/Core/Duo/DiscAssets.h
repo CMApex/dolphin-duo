@@ -61,6 +61,9 @@ ParseMessageTable(std::span<const u8> data, bool shift_jis);
 // Reads a file from the game partition of a disc image. Thread-safe; opened discs are cached.
 std::optional<std::vector<u8>> ReadDiscFile(const std::string& disc_path, std::string_view file);
 
+// Closes the discs ReadDiscFile keeps open (when emulation stops).
+void CloseDiscFiles();
+
 // Returns the path of a PNG for `source`, decoding it from the disc into `cache_directory` on first
 // use. `error` explains a failure.
 std::optional<std::string> MaterializeDiscImage(const std::string& disc_path,

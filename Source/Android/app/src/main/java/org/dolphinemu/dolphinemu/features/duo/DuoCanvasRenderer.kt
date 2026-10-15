@@ -32,6 +32,13 @@ import kotlin.math.min
  * same snapshots on desktop for authoring.
  */
 class DuoCanvasRenderer {
+    companion object {
+        /** One worker for disc images: they share the runtime's cache and disc handles. */
+        private val discLoader = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "DuoDiscImages").apply { isDaemon = true }
+        }
+    }
+
     class Hit(val rect: RectF, val action: String, val source: String, val index: Int)
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -42,6 +49,12 @@ class DuoCanvasRenderer {
     private val typefaces = HashMap<String, Typeface>()
     private val bitmaps = HashMap<String, Bitmap?>()
     private val discFailures = HashMap<String, Long>()
+    private val pending = HashSet<String>()
+    private var directoryGeneration = 0
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** Called on the UI thread when an image that was still loading becomes available. */
+    var onAssetLoaded: (() -> Unit)? = null
     private val paths = LinkedHashMap<String, Path?>(64, 0.75f, true)
     private var directory: String? = null
 
@@ -55,6 +68,8 @@ class DuoCanvasRenderer {
             typefaces.clear()
             bitmaps.clear()
             discFailures.clear()
+            pending.clear()
+            directoryGeneration++
         }
         val scale = min(viewWidth / info.width, viewHeight / info.height)
         val dx = (viewWidth - info.width * scale) / 2f
@@ -540,20 +555,34 @@ class DuoCanvasRenderer {
 
     private fun loadBitmap(relativePath: String): Bitmap? {
         if (bitmaps.containsKey(relativePath)) return bitmaps[relativePath]
-        // "disc:" images come from the running game's disc, decoded once into Duo's cache. A miss
-        // (no game yet, unreadable disc) is not remembered, so it is retried on a later frame.
-        val isDisc = relativePath.startsWith("disc:")
-        val now = android.os.SystemClock.uptimeMillis()
-        if (isDisc && now - (discFailures[relativePath] ?: Long.MIN_VALUE / 2) < 2000) return null
-        val file = if (isDisc) {
-            DuoNative.resolveDiscImage(relativePath)?.let { File(it) }?.takeIf { it.isFile }
-        } else {
-            resolveInPackage(relativePath)
+        if (!relativePath.startsWith("disc:")) {
+            val bitmap = resolveInPackage(relativePath)?.let { decodeBitmap(it) }
+            bitmaps[relativePath] = bitmap
+            return bitmap
         }
-        val bitmap = file?.let { decodeBitmap(it) }
-        if (bitmap != null || !isDisc) bitmaps[relativePath] = bitmap
-        if (bitmap == null && isDisc) discFailures[relativePath] = now
-        return bitmap
+        // "disc:" images are decoded from the running game's disc (once, then cached as PNGs by the
+        // runtime). That can take a while, so it happens on a worker thread and the screen redraws
+        // when the image arrives. A miss (no game yet, unreadable disc) is retried after a pause.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (relativePath in pending) return null
+        if (now - (discFailures[relativePath] ?: Long.MIN_VALUE / 2) < 2000) return null
+        pending.add(relativePath)
+        val generation = directoryGeneration
+        discLoader.execute {
+            val bitmap = DuoNative.resolveDiscImage(relativePath)
+                ?.let { File(it) }?.takeIf { it.isFile }?.let { decodeBitmap(it) }
+            mainHandler.post {
+                pending.remove(relativePath)
+                if (generation != directoryGeneration) return@post  // Companion changed meanwhile.
+                if (bitmap != null) {
+                    bitmaps[relativePath] = bitmap
+                    onAssetLoaded?.invoke()
+                } else {
+                    discFailures[relativePath] = android.os.SystemClock.uptimeMillis()
+                }
+            }
+        }
+        return null
     }
 
     private fun decodeBitmap(file: File): Bitmap? {
