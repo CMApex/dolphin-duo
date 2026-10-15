@@ -69,7 +69,39 @@ jobs:
 
       - name: Build debug APK (arm64-v8a)
         working-directory: Source/Android
-        run: ./gradlew assembleDebug -Pandroid.injected.build.abi=arm64-v8a --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug -Pandroid.injected.build.abi=arm64-v8a --stacktrace 2>&1 \
+            | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Report build errors
+        # Puts compiler errors and Gradle's failure summary on the run's summary page, so they
+        # can be read without opening the full log.
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/gradle.log"
+          [ -f "$log" ] || exit 0
+          python3 - "$log" <<'PY'
+          import re, sys
+          lines = open(sys.argv[1], errors="replace").read().splitlines()
+
+          def annotate(title, body):
+              body = body[:6000].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title={title}::{body}")
+
+          errors = [l for l in lines
+                    if re.match(r"^e: ", l)
+                    or re.search(r"\berror:", l)
+                    or l.startswith("CMake Error")
+                    or "FAILED:" in l]
+          if errors:
+              annotate("Compiler errors", "\n".join(dict.fromkeys(errors))[:6000])
+          for i, l in enumerate(lines):
+              if l.startswith("* What went wrong:"):
+                  annotate("What went wrong", "\n".join(lines[i:i + 30]))
+                  break
+          annotate("End of build log", "\n".join(lines[-60:]))
+          PY
 
       - name: Collect APK
         run: |
