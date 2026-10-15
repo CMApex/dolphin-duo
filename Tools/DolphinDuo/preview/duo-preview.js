@@ -95,6 +95,27 @@
     return `${e.weight === 'bold' ? 'bold ' : ''}${size}px "${family}", serif`;
   }
 
+  // Draws `img` (or its `crop` [x, y, w, h]) into `r`, nine-sliced when `slice` [l, t, r, b] is set:
+  // corners keep their size (times `slice_scale`), edges stretch along one axis, the centre both.
+  function drawImageBox(ctx, img, e, r) {
+    const c = e.crop || [0, 0, img.naturalWidth || img.width, img.naturalHeight || img.height];
+    const [sx, sy, sw, sh] = c;
+    if (!e.slice) { ctx.drawImage(img, sx, sy, sw, sh, r.x, r.y, r.w, r.h); return; }
+    const scale = num(e, 'slice_scale', 1);
+    let [l, t, rr, b] = e.slice;
+    const L = Math.min(l * scale, r.w / 2), T = Math.min(t * scale, r.h / 2);
+    const R = Math.min(rr * scale, r.w / 2), Bt = Math.min(b * scale, r.h / 2);
+    const xs = [sx, sx + l, sx + sw - rr, sx + sw], ys = [sy, sy + t, sy + sh - b, sy + sh];
+    const xd = [r.x, r.x + L, r.x + r.w - R, r.x + r.w], yd = [r.y, r.y + T, r.y + r.h - Bt, r.y + r.h];
+    for (let j = 0; j < 3; j++) {
+      for (let i = 0; i < 3; i++) {
+        const w0 = xs[i + 1] - xs[i], h0 = ys[j + 1] - ys[j];
+        const w1 = xd[i + 1] - xd[i], h1 = yd[j + 1] - yd[j];
+        if (w0 > 0 && h0 > 0 && w1 > 0 && h1 > 0) ctx.drawImage(img, xs[i], ys[j], w0, h0, xd[i], yd[j], w1, h1);
+      }
+    }
+  }
+
   const drawers = {
     rect(ctx, e) {
       const r = box(e);
@@ -261,14 +282,27 @@
       if (!img) return;
       const r = box(e);
       const tint = col(e, 'tint');
-      if (!tint) { ctx.drawImage(img, r.x, r.y, r.w, r.h); return; }
-      const off = document.createElement('canvas');
-      off.width = Math.max(1, Math.round(r.w)); off.height = Math.max(1, Math.round(r.h));
-      const o = off.getContext('2d');
-      o.drawImage(img, 0, 0, off.width, off.height);
-      o.globalCompositeOperation = 'source-in';
-      o.fillStyle = tint; o.fillRect(0, 0, off.width, off.height);
-      ctx.drawImage(off, r.x, r.y, r.w, r.h);
+      let target = ctx, dx = r.x, dy = r.y, off = null;
+      if (tint) {
+        off = document.createElement('canvas');
+        off.width = Math.max(1, Math.round(r.w)); off.height = Math.max(1, Math.round(r.h));
+        target = off.getContext('2d'); dx = 0; dy = 0;
+      }
+      if (num(e, 'flip_x', 0)) {
+        // Mirror around the box's centre (end caps drawn from one texture).
+        target.save();
+        target.translate(dx * 2 + r.w, 0);
+        target.scale(-1, 1);
+        drawImageBox(target, img, e, { x: dx, y: dy, w: r.w, h: r.h });
+        target.restore();
+      } else {
+        drawImageBox(target, img, e, { x: dx, y: dy, w: r.w, h: r.h });
+      }
+      if (tint) {
+        target.globalCompositeOperation = 'source-in';
+        target.fillStyle = tint; target.fillRect(0, 0, off.width, off.height);
+        ctx.drawImage(off, r.x, r.y, r.w, r.h);
+      }
     },
 
     path(ctx, e) {

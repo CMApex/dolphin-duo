@@ -6,7 +6,7 @@
 //   node Tools/DolphinDuo/preview/render.mjs snap.json out.png [--size 1240x1080]
 //
 // --size is the screen in pixels (default: the layout's canvas size). Fonts and images are loaded
-// from the companion folder named in the snapshot.
+// from the companion folder named in the snapshot; disc: images need `duo preview --disc`.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
@@ -46,8 +46,9 @@ const wanted = new Set(Object.values(snapshot.canvas.fonts || {}));
 for (const e of snapshot.elements || []) if (e.t === 'image' && e.src) wanted.add(e.src);
 const types = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
 const inlined = {};
+const discImages = snapshot.disc_images || {};
 for (const path of wanted) {
-  const file = directory ? join(directory, path) : null;
+  const file = path.startsWith('disc:') ? discImages[path] : directory ? join(directory, path) : null;
   if (file && existsSync(file)) {
     inlined[path] = `data:${types[extname(path).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(file).toString('base64')}`;
   }
