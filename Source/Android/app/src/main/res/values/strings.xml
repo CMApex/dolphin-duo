@@ -175,11 +175,7 @@
     <string name="duo_companions_intro">Companions are small packages that describe what to show on the second screen for a specific game. Each one targets exact game IDs and disc revisions, so it only loads for the version it was written for.</string>
     <string name="duo_install_companion">Install Companion…</string>
     <string name="duo_no_companions">No companions installed yet.</string>
-    <string name="duo_folders">Companions folder:
-%1$s
-
-Watches folder (simple address lists, one file per game ID):
-%2$s</string>
+    <string name="duo_folders">Companions folder:\n%1$s\n\nWatches folder (simple address lists, one file per game ID):\n%2$s</string>
     <string name="duo_for_games">For: %1$s</string>
     <string name="duo_by_author">By %1$s</string>
     <string name="duo_companion_broken">This companion has problems and will not load:</string>
@@ -189,7 +185,7 @@ Watches folder (simple address lists, one file per game ID):
     <string name="duo_install_title">Install %1$s %2$s?</string>
     <string name="duo_install_failed">Could not install companion</string>
     <string name="duo_permissions_header">This companion can:</string>
-    <string name="duo_permission_write">change values in the game's memory</string>
+    <string name="duo_permission_write">change values in the game\'s memory</string>
     <string name="duo_permission_input">press controller buttons for you</string>
     <string name="download_game_covers">Download Game Covers from GameTDB.com</string>
     <string name="show_titles_in_game_list">Show Titles</string>
