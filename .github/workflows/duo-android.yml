@@ -21,15 +21,28 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # A pull request from a branch of this repository is already built by its push.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
 
     steps:
       - name: Check out (full history, for version numbers)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        # Runs before the submodules are fetched so its wrapper check only covers Dolphin's own
+        # Gradle wrapper, not sample projects inside third-party submodules (SDL ships one).
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Fetch submodules
         run: |
@@ -38,15 +51,6 @@ jobs:
                   | grep -Ev '^Externals/(Qt|FFmpeg-bin|MoltenVK)$')
           git submodule update --init --recursive --depth 1 --jobs 8 $paths \
             || git submodule update --init --recursive --jobs 8 $paths
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
 
       - name: Install the NDK Dolphin expects
         run: |
