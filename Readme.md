@@ -1,205 +1,115 @@
-# Dolphin - A GameCube and Wii Emulator
+# Dolphin Duo
 
-> **This is Dolphin Duo**, a fork of Dolphin for dual-screen Android handhelds like the AYN Thor.
-> The game runs on the main screen and the second screen shows a live, touchable companion for the
-> game you are playing: maps, party stats, inventories, quick actions. See
-> [docs/DolphinDuo](docs/DolphinDuo/README.md). It is not affiliated with or endorsed by the Dolphin
-> project; please report Duo issues here, not upstream.
+**Dolphin Duo** is a fork of the [Dolphin](https://dolphin-emu.org/) GameCube and Wii emulator for
+dual-screen Android handhelds like the **AYN Thor**. The game runs on the top screen as usual. The
+bottom screen shows a live, touchable **companion** for the game you're playing: maps, unit and
+party stats, inventories, scene views.
 
-[Homepage](https://dolphin-emu.org/) | [Project Site](https://github.com/dolphin-emu/dolphin) | [Buildbot](https://dolphin.ci/) | [Forums](https://forums.dolphin-emu.org/) | [Wiki](https://wiki.dolphin-emu.org/) | [GitHub Wiki](https://github.com/dolphin-emu/dolphin/wiki) | [Issue Tracker](https://bugs.dolphin-emu.org/projects/emulator/issues) | [Coding Style](https://github.com/dolphin-emu/dolphin/blob/master/Contributing.md) | [Transifex Page](https://app.transifex.com/dolphinemu/dolphin-emu/dashboard/) | [Analytics](https://mon.dolphin-emu.org/)
+<!-- Thor photo: game on the top screen, Path of Radiance companion on the bottom.
+<p align="center"><img src="docs/DolphinDuo/images/thor.jpg" alt="Dolphin Duo on an AYN Thor" width="640"></p>
+-->
 
-Dolphin is an emulator for running GameCube and Wii games on Windows,
-Linux, macOS, and recent Android devices. It's licensed under the terms
-of the GNU General Public License, version 2 or later (GPLv2+).
+Dolphin Duo is **not affiliated with or endorsed by the Dolphin project**. Please report Duo
+problems [here](https://github.com/CMApex/dolphin-duo/issues), not to Dolphin's issue tracker.
 
-Please read the [FAQ](https://dolphin-emu.org/docs/faq/) before using Dolphin.
+> **Status: early and moving fast.** The builds below are debug test builds. Expect rough edges.
 
-## System Requirements
+## Download
 
-### Desktop
+Test builds are on the [Releases page](https://github.com/CMApex/dolphin-duo/releases). Each
+branch publishes its newest build as a pre-release named `duo-latest-<branch>`:
+`duo-latest-master` is the main line, and the others carry work in progress.
 
-* OS
-    * Windows (10 1903 or higher).
-    * Linux.
-    * macOS (11.0 Big Sur or higher).
-    * Unix-like systems other than Linux are not officially supported but might work.
-* Processor
-    * A CPU with SSE2 support.
-    * A modern CPU (3 GHz and Dual Core, not older than 2008) is highly recommended.
-* Graphics
-    * A reasonably modern graphics card (Direct3D 11.1 / OpenGL 3.3).
-    * A graphics card that supports Direct3D 11.1 / OpenGL 4.4 is recommended.
+* The APK is arm64 and installs as **Dolphin Duo Debug**, alongside regular Dolphin rather than
+  replacing it.
+* Every test build is signed with the same key, so newer builds install over older ones and keep
+  your settings and companions.
 
-### Android
+## Devices
 
-* OS
-    * Android (7.0 Nougat or higher).
-* Processor
-    * A processor with support for 64-bit applications (either ARMv8 or x86-64).
-* Graphics
-    * A graphics processor that supports OpenGL ES 3.0 or higher. Performance varies heavily with [driver quality](https://dolphin-emu.org/blog/2013/09/26/dolphin-emulator-and-opengl-drivers-hall-fameshame/).
-    * A graphics processor that supports standard desktop OpenGL features is recommended for best performance.
+* **AYN Thor**: the device Dolphin Duo is built and laid out for (1240x1080 bottom screen).
+* **Other Android devices with a second display**: should work. Dolphin Duo uses any Android
+  *presentation* display other than the one the game is on. Companions can also provide a 4:3
+  layout.
+* **Single-screen phones and desktop**: behave like normal Dolphin. The companion runtime only
+  runs while a second screen is attached.
 
-Dolphin can only be installed on devices that satisfy the above requirements. Attempting to install on an unsupported device will fail and display an error message.
+## Companions
+
+A companion is a small declarative package (a `manifest.json` plus optional fonts and images)
+written for one game. It reads the game's memory between frames and draws pages on the second
+screen. Companions can only change memory or press buttons if they ask for it, and the installer
+shows you which ones do before you install.
+
+| Game | ID | What it shows |
+|---|---|---|
+| [Fire Emblem: Path of Radiance](Companions/fe9-path-of-radiance/README.md) | `GFEE01` | Live war-map minimap, unit under the cursor, army roster, full status, battle and scene views, in the game's own style |
+
+**Your disc, your assets.** Companions don't ship any of the game's art or text. Things like
+portraits, item icons, window frames, and character and item names are read from **your own disc
+image** while you play. Nothing from the games lives in this repository.
+
+### Installing a companion
+
+1. Zip the companion's folder (for example `Companions/fe9-path-of-radiance`).
+2. In Dolphin Duo, open **Settings → Interface → Dolphin Duo → Manage Companions** and install the
+   zip.
+3. Start the game. The companion appears on the second screen.
+
+With no companion installed for a game, the second screen shows the **Inspector**: the game ID,
+the revision and a live view of any addresses you list in `Duo/Watches/<GAMEID>.txt`.
+
+The same settings section can turn the companion screen off and controls whether companions may
+change game memory. Memory changes are always blocked in RetroAchievements hardcore mode.
+
+## Making companions
+
+Start with [docs/DolphinDuo](docs/DolphinDuo/README.md), which covers how it works and the
+workflow from finding addresses to installing.
+
+* [PACKAGE_FORMAT.md](docs/DolphinDuo/PACKAGE_FORMAT.md): the manifest reference (values, pointer
+  chains, arrays, expressions, pages, canvas pages, `disc:` images and text tables, actions).
+* [examples/template](docs/DolphinDuo/examples/template/manifest.json): a starter companion, plus a
+  script that writes a fake memory dump to preview it with.
+* `dolphin-tool duo validate | preview`: check a companion and render its pages from a memory dump
+  on desktop.
+* [Tools/DolphinDuo/preview](Tools/DolphinDuo/preview): a desktop renderer for canvas pages.
+* [Tools/DolphinDuo/headless](Tools/DolphinDuo/headless): plays a game from a script in headless
+  Dolphin, dumping memory and screenshots and running the companion runtime along the way.
+
+Your companion's own images and fonts have to be yours or freely licensed. Anything from the game
+should come from the player's disc through `disc:` references.
 
 ## Building
 
-You may find building instructions on the appropriate wiki page for your operating system:
-
-* [Windows](https://github.com/dolphin-emu/dolphin/wiki/Building-for-Windows)
-* [Linux](https://github.com/dolphin-emu/dolphin/wiki/Building-for-Linux)
-* [macOS](https://github.com/dolphin-emu/dolphin/wiki/Building-for-macOS)
-* [Android](#android-specific-instructions) <!-- TODO: Create a "Building for Android" wiki page and link it here -->
-* [OpenBSD](https://github.com/dolphin-emu/dolphin/wiki/Building-for-OpenBSD) (unsupported)
-
-Before building, make sure to pull all submodules:
+Dolphin Duo builds the same way as Dolphin. See Dolphin's
+[README](docs/UPSTREAM_README.md#building) and [AndroidSetup.md](AndroidSetup.md). Clone with
+submodules, then build the Android APK:
 
 ```sh
-git submodule update --init --recursive
+cd Source/Android
+./gradlew assembleDebug -PduoAbis=arm64-v8a
 ```
 
-### Android-specific instructions
+* `-PduoAbis` limits the build to the listed ABIs, which saves a lot of build time. Don't use
+  Android Studio's ABI shortcut (`android.injected.build.abi`) for APKs you plan to share: it marks
+  them test-only, so they won't install from a file manager.
+* Debug builds are signed with `Source/Android/duo-debug.keystore`, a public test key that keeps
+  test builds installing over each other. **Never** sign a real release with it.
+* [`.github/workflows/duo-android.yml`](.github/workflows/duo-android.yml) builds the APK on every
+  push to `master` and `dolphin-duo/**` and publishes the pre-releases.
 
-These instructions assume familiarity with Android development. If you do not have an
-Android dev environment set up, see [AndroidSetup.md](AndroidSetup.md).
+Desktop builds include `dolphin-tool duo` and the headless harness (`dolphin-emu-nogui`). Unit
+tests for the runtime are in `Source/UnitTests/Core/DuoTest.cpp`.
 
-If using Android Studio, import the Gradle project located in `./Source/Android`.
+## Credits and license
 
-Android apps are compiled using a build system called Gradle. Dolphin's native component,
-however, is compiled using CMake. The Gradle script will attempt to run a CMake build
-automatically while building the Java code.
-
-## Uninstalling
-
-On Windows, simply remove the extracted directory, unless it was installed with the NSIS installer,
-in which case you can uninstall Dolphin like any other Windows application.
-
-Linux users can run `cat install_manifest.txt | xargs -d '\n' rm` as root from the build directory
-to uninstall Dolphin from their system.
-
-macOS users can simply delete Dolphin.app to uninstall it.
-
-Additionally, you'll want to remove the global user directory if you don't plan on reinstalling Dolphin.
-
-## Command Line Usage
-
-```
-Usage: Dolphin.exe [options]... [FILE]...
-
-Options:
-  --version             show program's version number and exit
-  -h, --help            show this help message and exit
-  -u USER, --user=USER  User folder path
-  -m MOVIE, --movie=MOVIE
-                        Play a movie file
-  -e <file>, --exec=<file>
-                        Load the specified file
-  -n <16-character ASCII title ID>, --nand_title=<16-character ASCII title ID>
-                        Launch a NAND title
-  -C <System>.<Section>.<Key>=<Value>, --config=<System>.<Section>.<Key>=<Value>
-                        Set a configuration option
-  -s <file>, --save_state=<file>
-                        Load the initial save state
-  -d, --debugger        Show the debugger pane and additional View menu options
-  -l, --logger          Open the logger
-  -b, --batch           Run Dolphin without the user interface (Requires
-                        --exec or --nand-title)
-  -c, --confirm         Set Confirm on Stop
-  -v VIDEO_BACKEND, --video_backend=VIDEO_BACKEND
-                        Specify a video backend
-  -a AUDIO_EMULATION, --audio_emulation=AUDIO_EMULATION
-                        Choose audio emulation from [HLE|LLE]
-```
-
-Available DSP emulation engines are HLE (High Level Emulation) and
-LLE (Low Level Emulation). HLE is faster but less accurate whereas
-LLE is slower but close to perfect. Note that LLE has two submodes (Interpreter and Recompiler)
-but they cannot be selected from the command line.
-
-Available video backends are "D3D" and "D3D12" (they are only available on Windows), "OGL", and "Vulkan".
-There's also "Null", which will not render anything, and
-"Software Renderer", which uses the CPU for rendering and
-is intended for debugging purposes only.
-
-## DolphinTool Usage
-```
-usage: dolphin-tool COMMAND -h
-
-commands supported: [convert, verify, header, extract]
-```
-
-```
-Usage: convert [options]... [FILE]...
-
-Options:
-  -h, --help            show this help message and exit
-  -u USER, --user=USER  User folder path, required for temporary processing
-                        files. Will be automatically created if this option is
-                        not set.
-  -i FILE, --input=FILE
-                        Path to disc image FILE.
-  -o FILE, --output=FILE
-                        Path to the destination FILE.
-  -f rvz|iso|gcz|wia, --format=rvz|iso|gcz|wia
-                        Container format to use. Default is RVZ.
-  -s, --scrub           Scrub junk data as part of conversion.
-  -b BLOCK_SIZE, --block_size=BLOCK_SIZE
-                        Block size for GCZ/WIA/RVZ formats, as an integer.
-                        Suggested value for RVZ: 131072 (128 KiB)
-  -c none|zstd|bzip2|lzma|lzma2, --compression=none|zstd|bzip2|lzma|lzma2
-                        Compression method to use when converting to WIA/RVZ.
-                        Suggested value for RVZ: zstd
-  -l COMPRESSION_LEVEL, --compression_level=COMPRESSION_LEVEL
-                        Level of compression for the selected method. Ignored
-                        if 'none'. Suggested value for zstd: 5
-```
-
-```
-Usage: verify [options]...
-
-Options:
-  -h, --help            show this help message and exit
-  -u USER, --user=USER  User folder path, required for temporary processing
-                        files. Will be automatically created if this option is
-                        not set.
-  -i FILE, --input=FILE
-                        Path to input file.
-  -a crc32|md5|sha1|rchash, --algorithm=crc32|md5|sha1|rchash
-                        Optional. Compute and print the digest using the
-                        selected algorithm, then exit.
-```
-
-```
-Usage: header [options]...
-
-Options:
-  -h, --help            show this help message and exit
-  -i FILE, --input=FILE
-                        Path to disc image FILE.
-  -b, --block_size      Optional. Print the block size of GCZ/WIA/RVZ formats,
-then exit.
-  -c, --compression     Optional. Print the compression method of GCZ/WIA/RVZ
-                        formats, then exit.
-  -l, --compression_level
-                        Optional. Print the level of compression for WIA/RVZ
-                        formats, then exit.
-```
-
-```
-Usage: extract [options]...
-
-Options:
-  -h, --help            show this help message and exit
-  -i FILE, --input=FILE
-                        Path to disc image FILE.
-  -o FOLDER, --output=FOLDER
-                        Path to the destination FOLDER.
-  -p PARTITION, --partition=PARTITION
-                        Which specific partition you want to extract.
-  -s SINGLE, --single=SINGLE
-                        Which specific file/directory you want to extract.
-  -l, --list            List all files in volume/partition. Will print the
-                        directory/file specified with --single if defined.
-  -q, --quiet           Mute all messages except for errors.
-  -g, --gameonly        Only extracts the DATA partition.
-```
+* **Dolphin** is the work of the [Dolphin team](https://github.com/dolphin-emu/dolphin) and its
+  contributors. Dolphin Duo is just a layer on top. Dolphin's own README is kept at
+  [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md).
+* Inspired by [Eden Duo](https://github.com/igawa6/eden-duo), which brings second-screen companions
+  to Switch emulation on the same handhelds. Dolphin Duo's code is written from scratch.
+* Licensed like Dolphin, under the **GNU General Public License, version 2 or later** (GPLv2+). See
+  [COPYING](COPYING) and [LICENSES](LICENSES).
+* Path of Radiance's companion uses the [Marcellus](https://fonts.google.com/specimen/Marcellus) and
+  [Cinzel](https://fonts.google.com/specimen/Cinzel) fonts (SIL Open Font License).
