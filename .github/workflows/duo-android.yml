@@ -4,8 +4,9 @@
 # rolling pre-release named "duo-latest-<branch>", so the newest build can be downloaded directly
 # on a phone or handheld from the repository's Releases page.
 #
-# Pushing a tag named "duo-v<version>" (on a commit in master) publishes a versioned release
-# "Dolphin Duo <version>" instead, with notes from docs/DolphinDuo/releases/<version>.md.
+# Versioned releases ("Dolphin Duo <version>", notes from docs/DolphinDuo/releases/<version>.md)
+# come from master: push a tag "duo-v<version>", or commit the notes file and let the next master
+# build publish it. See the "Publish versioned release" step.
 
 name: Dolphin Duo Android APK
 
@@ -127,11 +128,7 @@ jobs:
           fi
 
           mkdir -p out
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            cp "$apk" "out/dolphin-duo-${GITHUB_REF_NAME#duo-v}-arm64.apk"
-          else
-            cp "$apk" "out/dolphin-duo-$(git rev-parse --short HEAD)-arm64-debug.apk"
-          fi
+          cp "$apk" "out/dolphin-duo-$(git rev-parse --short HEAD)-arm64-debug.apk"
           ls -la out
 
       - name: Package companions
@@ -201,23 +198,50 @@ jobs:
             --notes "$notes"
 
       - name: Publish versioned release
-        if: github.ref_type == 'tag'
+        # Two ways to release, both from master:
+        # - push a tag duo-v<version> on a master commit, or
+        # - commit docs/DolphinDuo/releases/<version>.md to master: the first master build that
+        #   finds notes for a version with no release yet publishes it (tagging duo-v<version>).
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${GITHUB_REF_NAME#duo-v}"
-          notes="docs/DolphinDuo/releases/${version}.md"
           git fetch --quiet origin master
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-            echo "::error title=Not on master::$GITHUB_REF_NAME must point at a commit in master"
-            exit 1
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#duo-v}"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+              echo "::error title=Not on master::$GITHUB_REF_NAME must point at a commit in master"
+              exit 1
+            fi
+          else
+            # The newest version with notes; nothing to do if it is already released.
+            version=$(ls docs/DolphinDuo/releases/*.md 2>/dev/null | xargs -rn1 basename \
+                      | sed 's/\.md$//' | sort -V | tail -n 1)
+            if [ -z "$version" ]; then
+              echo "No release notes; nothing to release."
+              exit 0
+            fi
+            if gh release view "duo-v$version" > /dev/null 2>&1; then
+              echo "duo-v$version is already released."
+              exit 0
+            fi
+            # A later master build may already be running; only the newest commit releases.
+            if [ "$(git rev-parse origin/master)" != "$GITHUB_SHA" ]; then
+              echo "master has moved on; its own build will publish duo-v$version."
+              exit 0
+            fi
           fi
+          notes="docs/DolphinDuo/releases/${version}.md"
           if [ ! -f "$notes" ]; then
-            echo "::error title=No release notes::Add $notes before tagging $GITHUB_REF_NAME"
+            echo "::error title=No release notes::Add $notes before releasing $version"
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" out/* \
-            --verify-tag \
+          # The APK in out/ is named for this commit; give the release copy the version instead.
+          mkdir -p release
+          cp out/*.zip release/ 2>/dev/null || true
+          cp out/*.apk "release/dolphin-duo-${version}-arm64.apk"
+          gh release create "duo-v$version" release/* \
+            --target "$GITHUB_SHA" \
             --title "Dolphin Duo $version" \
             --notes-file "$notes" \
             --latest

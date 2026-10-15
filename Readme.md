@@ -106,8 +106,10 @@ cd Source/Android
 * Debug builds are signed with `Source/Android/duo-debug.keystore`, a public test key that keeps
   test builds installing over each other. **Never** sign a real release with it.
 * [`.github/workflows/duo-android.yml`](.github/workflows/duo-android.yml) builds the APK on every
-  push to `master` and `dolphin-duo/**` and publishes the pre-releases. To make a release, add
-  `docs/DolphinDuo/releases/<version>.md` and push a tag `duo-v<version>` on a `master` commit.
+  push to `master` and `dolphin-duo/**` and publishes the pre-releases. To make a release, commit
+  `docs/DolphinDuo/releases/<version>.md` (the release notes) to `master`. The next `master` build
+  publishes "Dolphin Duo <version>" and tags it `duo-v<version>`. Pushing that tag yourself works
+  too.
 
 Desktop builds include `dolphin-tool duo` and the headless harness (`dolphin-emu-nogui`). Unit
 tests for the runtime are in `Source/UnitTests/Core/DuoTest.cpp`.
