@@ -60,13 +60,6 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
           cmake --version | head -1
 
-      - name: Use the Dolphin Duo debug signing key
-        # A fixed debug key means each new test build installs over the previous one instead of
-        # forcing an uninstall, which would delete Dolphin's user folder and installed companions.
-        run: |
-          mkdir -p ~/.android
-          cp Source/Android/duo-debug.keystore ~/.android/debug.keystore
-
       - name: Build debug APK (arm64-v8a)
         working-directory: Source/Android
         run: |
@@ -116,6 +109,16 @@ jobs:
           aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2
           if "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -q 'testOnly'; then
             echo "::error title=Test-only APK::$apk is marked android:testOnly"
+            exit 1
+          fi
+
+          # Every test build must carry the fixed Duo debug key, or it will not install over the
+          # previous one (and uninstalling would delete Dolphin's user folder and companions).
+          expected=160d6f57d7c9ed35b612e677aab7ed864ee0e6e4ab86c7d4b838c98e2e7c3bfa
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          if ! grep -qi "SHA-256 digest: $expected" "$RUNNER_TEMP/certs.txt"; then
+            echo "::error title=Wrong signing key::$apk is not signed with duo-debug.keystore"
             exit 1
           fi
 

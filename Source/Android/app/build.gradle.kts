@@ -51,6 +51,18 @@ android {
     }
 
     signingConfigs {
+        // Dolphin Duo: debug builds are signed with a fixed key from the repository, so every
+        // test build (CI or local) installs over the previous one. Never use it for releases.
+        val duoDebugKeystore = rootProject.file("duo-debug.keystore")
+        if (duoDebugKeystore.exists()) {
+            create("duoDebug") {
+                storeFile = duoDebugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+
         create("release") {
             if (project.hasProperty("keystore")) {
                 storeFile = file(project.property("keystore")!!)
@@ -81,6 +93,7 @@ android {
         // Signed by debug key disallowing distribution on Play Store.
         // Attaches "debug" suffix to version and package name, allowing installation alongside the release build.
         debug {
+            signingConfigs.findByName("duoDebug")?.let { signingConfig = it }
             resValue("string", "app_name_suffixed", "Dolphin Duo Debug")
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
