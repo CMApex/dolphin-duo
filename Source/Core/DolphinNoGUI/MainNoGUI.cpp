@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "DolphinNoGUI/Platform.h"
+#include "DolphinNoGUI/DuoHarness.h"
 
 #include <OptionParser.h>
 #include <csignal>
@@ -313,7 +314,9 @@ int main(const int argc, char* argv[])
   Discord::UpdateDiscordPresence();
 #endif
 
+  DuoHarness::Start();
   s_platform->MainLoop();
+  DuoHarness::Stop();
   Core::Stop(Core::System::GetInstance());
 
   Core::Shutdown(Core::System::GetInstance());

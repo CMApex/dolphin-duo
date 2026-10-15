@@ -3,6 +3,8 @@ add_executable(dolphin-nogui
   Platform.h
   PlatformHeadless.cpp
   MainNoGUI.cpp
+  DuoHarness.cpp
+  DuoHarness.h
 )
 
 if(X11_FOUND)

@@ -413,6 +413,11 @@ extern const Info<bool> MAIN_GBA_AUDIO_ROUTING_ENABLED;
 extern const std::array<Info<bool>, GBA_SPEAKER_COUNT> MAIN_GBA_AUDIO_OUTPUT_ENABLED;
 extern const std::array<Info<std::string>, GBA_SPEAKER_COUNT> MAIN_GBA_AUDIO_OUTPUT_DEVICE;
 
+// Main.Duo (Dolphin Duo companion screen)
+
+extern const Info<bool> MAIN_DUO_ENABLED;
+extern const Info<bool> MAIN_DUO_ALLOW_WRITES;
+
 // GameCube path utility functions
 
 // Replaces NTSC-K with some other region, and doesn't replace non-NTSC-K regions

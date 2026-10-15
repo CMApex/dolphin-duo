@@ -1,0 +1,223 @@
+# Builds a Dolphin Duo debug APK (arm64-v8a, for the AYN Thor and similar handhelds).
+#
+# Every run uploads the APK as a workflow artifact. Pushes (not pull requests) also publish it as a
+# rolling pre-release named "duo-latest-<branch>", so the newest build can be downloaded directly
+# on a phone or handheld from the repository's Releases page.
+#
+# Pushing a tag named "duo-v<version>" (on a commit in master) publishes a versioned release
+# "Dolphin Duo <version>" instead, with notes from docs/DolphinDuo/releases/<version>.md.
+
+name: Dolphin Duo Android APK
+
+on:
+  push:
+    branches: [master, "dolphin-duo/**"]
+    tags: ["duo-v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: duo-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    # A pull request from a branch of this repository is already built by its push.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Check out (full history, for version numbers)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        # Runs before the submodules are fetched so its wrapper check only covers Dolphin's own
+        # Gradle wrapper, not sample projects inside third-party submodules (SDL ships one).
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Fetch submodules
+        run: |
+          # Qt, FFmpeg-bin and MoltenVK are prebuilt Windows/macOS binaries Android never uses.
+          paths=$(git config --file .gitmodules --get-regexp '\.path$' | awk '{print $2}' \
+                  | grep -Ev '^Externals/(Qt|FFmpeg-bin|MoltenVK)$')
+          git submodule update --init --recursive --depth 1 --jobs 8 $paths \
+            || git submodule update --init --recursive --jobs 8 $paths
+
+      - name: Install the NDK Dolphin expects
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+          ndk=$(grep -oP 'ndkVersion = "\K[^"]+' Source/Android/app/build.gradle.kts)
+          echo "NDK $ndk"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
+          cmake --version | head -1
+
+      - name: Build debug APK (arm64-v8a)
+        working-directory: Source/Android
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug -PduoAbis=arm64-v8a --stacktrace 2>&1 \
+            | tee "$RUNNER_TEMP/gradle.log"
+
+      - name: Report build errors
+        # Puts compiler errors and Gradle's failure summary on the run's summary page, so they
+        # can be read without opening the full log.
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/gradle.log"
+          [ -f "$log" ] || exit 0
+          python3 - "$log" <<'PY'
+          import re, sys
+          lines = open(sys.argv[1], errors="replace").read().splitlines()
+
+          def annotate(title, body):
+              body = body[:6000].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title={title}::{body}")
+
+          errors = [l for l in lines
+                    if re.match(r"^e: ", l)
+                    or re.search(r"\berror:", l)
+                    or l.startswith("CMake Error")
+                    or "FAILED:" in l]
+          if errors:
+              annotate("Compiler errors", "\n".join(dict.fromkeys(errors))[:6000])
+          for i, l in enumerate(lines):
+              if l.startswith("* What went wrong:"):
+                  annotate("What went wrong", "\n".join(lines[i:i + 30]))
+                  break
+          annotate("End of build log", "\n".join(lines[-60:]))
+          PY
+
+      - name: Collect APK
+        run: |
+          # Normally outputs/apk/debug; search the build folder in case AGP changes its layout.
+          find Source/Android/app/build -name '*.apk' -not -path '*androidTest*' -printf '%s %p\n'
+          apk=$(ls Source/Android/app/build/outputs/apk/debug/*.apk 2>/dev/null | head -n 1)
+          [ -n "$apk" ] || apk=$(find Source/Android/app/build -name '*.apk' -path '*debug*' \
+                                   -not -path '*androidTest*' | head -n 1)
+          [ -n "$apk" ] || { echo "::error title=No APK::Gradle produced no debug APK"; exit 1; }
+
+          # A test-only APK cannot be installed from a file manager or browser.
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2
+          if "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -q 'testOnly'; then
+            echo "::error title=Test-only APK::$apk is marked android:testOnly"
+            exit 1
+          fi
+
+          # Every test build must carry the fixed Duo debug key, or it will not install over the
+          # previous one (and uninstalling would delete Dolphin's user folder and companions).
+          expected=160d6f57d7c9ed35b612e677aab7ed864ee0e6e4ab86c7d4b838c98e2e7c3bfa
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          if ! grep -qi "SHA-256 digest: $expected" "$RUNNER_TEMP/certs.txt"; then
+            echo "::error title=Wrong signing key::$apk is not signed with duo-debug.keystore"
+            exit 1
+          fi
+
+          mkdir -p out
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cp "$apk" "out/dolphin-duo-${GITHUB_REF_NAME#duo-v}-arm64.apk"
+          else
+            cp "$apk" "out/dolphin-duo-$(git rev-parse --short HEAD)-arm64-debug.apk"
+          fi
+          ls -la out
+
+      - name: Package companions
+        # One installable zip per folder in Companions/, named after the folder, so the README can
+        # link straight to releases/download/duo-latest-master/<folder>.zip. Built from the same
+        # commit as the APK, so a companion always matches the runtime it was published with.
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys, zipfile
+
+          # Generators and research tools stay in the repo; players only need what the runtime reads.
+          SKIP_DIRS = {"tools", "__pycache__", ".git"}
+          SKIP_SUFFIXES = {".py", ".pyc"}
+
+          out = pathlib.Path("out")
+          companions = pathlib.Path("Companions")
+          folders = sorted(p for p in companions.iterdir() if p.is_dir()) if companions.is_dir() else []
+          for folder in folders:
+              manifest = folder / "manifest.json"
+              if not manifest.is_file():
+                  continue
+              try:
+                  json.loads(manifest.read_text(encoding="utf-8"))
+              except ValueError as error:
+                  print(f"::error title=Broken companion::{manifest}: {error}")
+                  sys.exit(1)
+              target = out / f"{folder.name}.zip"
+              with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+                  for path in sorted(folder.rglob("*")):
+                      relative = path.relative_to(folder)
+                      if path.is_dir() or path.suffix in SKIP_SUFFIXES:
+                          continue
+                      if any(part in SKIP_DIRS for part in relative.parts):
+                          continue
+                      # manifest.json sits at the root of the zip, where the installer looks first.
+                      archive.write(path, relative.as_posix())
+              names = zipfile.ZipFile(target).namelist()
+              print(f"{target} ({target.stat().st_size} bytes): {', '.join(names)}")
+          PY
+          ls -la out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dolphin-duo-apk
+          path: |
+            out/*.apk
+            out/*.zip
+
+      - name: Publish rolling pre-release
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="duo-latest-$(echo "$GITHUB_REF_NAME" | tr '/' '-')"
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          notes="Debug build of \`$GITHUB_REF_NAME\` at $GITHUB_SHA (arm64-v8a). Installs as \"Dolphin Duo Debug\" alongside regular Dolphin. Later test builds install over this one."
+          if ls out/*.zip > /dev/null 2>&1; then
+            notes="$notes
+
+          The .zip files are the companions from the same commit. Install them from Settings → Interface → Dolphin Duo → Manage Companions."
+          fi
+          gh release create "$tag" out/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Dolphin Duo test build ($GITHUB_REF_NAME)" \
+            --notes "$notes"
+
+      - name: Publish versioned release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#duo-v}"
+          notes="docs/DolphinDuo/releases/${version}.md"
+          git fetch --quiet origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error title=Not on master::$GITHUB_REF_NAME must point at a commit in master"
+            exit 1
+          fi
+          if [ ! -f "$notes" ]; then
+            echo "::error title=No release notes::Add $notes before tagging $GITHUB_REF_NAME"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" out/* \
+            --verify-tag \
+            --title "Dolphin Duo $version" \
+            --notes-file "$notes" \
+            --latest

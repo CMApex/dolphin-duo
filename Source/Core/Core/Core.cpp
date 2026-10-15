@@ -74,6 +74,7 @@
 #include "Core/WiiRoot.h"
 
 #ifdef USE_MEMORYWATCHER
+#include "Core/Duo/Runtime.h"
 #include "Core/MemoryWatcher.h"
 #endif
 
@@ -159,6 +160,16 @@ void OnFrameEnd(Core::System& system)
     s_memory_watcher->Step(guard);
   }
 #endif
+
+  // Dolphin Duo: sample the companion screen's values between frames. This is a no-op unless a
+  // frontend with a second screen has attached.
+  Duo::Runtime& duo = Duo::Runtime::GetInstance();
+  if (duo.IsFrontendAttached())
+  {
+    ASSERT(IsCPUThread());
+    const CPUThreadGuard guard(system);
+    duo.OnFrameEnd(guard);
+  }
 }
 
 // Display messages and return values
@@ -383,6 +394,8 @@ static void CpuThread(Core::System& system, const std::optional<std::string>& sa
 
   // Enter CPU run loop. When we leave it - we are done.
   system.GetCPU().Run();
+
+  Duo::Runtime::GetInstance().Shutdown();
 
 #ifdef USE_MEMORYWATCHER
   s_memory_watcher.reset();

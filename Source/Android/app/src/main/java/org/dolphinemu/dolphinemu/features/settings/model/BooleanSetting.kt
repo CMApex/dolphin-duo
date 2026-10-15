@@ -12,6 +12,13 @@ enum class BooleanSetting(
 ) : AbstractBooleanSetting {
     // These entries have the same names and order as in C++, just for consistency.
     MAIN_SKIP_IPL(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "SkipIPL", true),
+    MAIN_DUO_ENABLED(Settings.FILE_DOLPHIN, Settings.SECTION_INI_DUO, "Enabled", true),
+    MAIN_DUO_ALLOW_WRITES(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_INI_DUO,
+        "AllowMemoryWrites",
+        true
+    ),
     MAIN_DSP_HLE(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "DSPHLE", true),
     MAIN_FASTMEM(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "Fastmem", true),
     MAIN_PAGE_TABLE_FASTMEM(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "PageTableFastmem", true),
