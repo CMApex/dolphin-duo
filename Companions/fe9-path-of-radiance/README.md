@@ -33,9 +33,14 @@ It only reads memory: no button presses, no memory writes.
 
 ## Install
 
-Zip this folder (or just `manifest.json` plus `fonts/`) and install it from
-**Settings → Interface → Dolphin Duo → Manage Companions**, or copy the folder to
-`<Dolphin user folder>/Duo/Companions/fe9-path-of-radiance/`.
+Download
+[fe9-path-of-radiance.zip](https://github.com/CMApex/dolphin-duo/releases/download/duo-latest-master/fe9-path-of-radiance.zip)
+(always the current version) and install it from
+**Settings → Interface → Dolphin Duo → Manage Companions**. Each
+[release](https://github.com/CMApex/dolphin-duo/releases) also carries the zip that goes with it.
+
+To install from a checkout instead, copy this folder to
+`<Dolphin user folder>/Duo/Companions/fe9-path-of-radiance/` (or zip `manifest.json` and `fonts/`).
 
 ## Rebuilding
 
