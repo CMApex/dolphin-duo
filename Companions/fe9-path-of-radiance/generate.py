@@ -596,6 +596,8 @@ def minimap(x, y, w, h):
          'cols': 'map_w', 'rows': 'map_h', 'source': 'cells',
          'cell': f"{{default(table(terrain_color, tname), '#B8A57A')}}",
          'bevel': 0.55, 'grid_color': '#405A4020', 'grid_width': 1,
+         # Pinch to zoom on the device; while zoomed the map follows the game's cursor.
+         'zoom': 4, 'follow_x': 'cursor_live ? cursor_x : -1', 'follow_y': 'cursor_live ? cursor_y : -1',
          'visible_if': 'map_ok',
          'layers': [
              {'source': 'cells', 'where': "default(table(terrain_glyph, tname), '') != ''",

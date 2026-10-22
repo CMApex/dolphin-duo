@@ -4238,6 +4238,9 @@
       "bevel": 0.55,
       "grid_color": "#405A4020",
       "grid_width": 1,
+      "zoom": 4,
+      "follow_x": "cursor_live ? cursor_x : -1",
+      "follow_y": "cursor_live ? cursor_y : -1",
       "visible_if": "map_ok",
       "layers": [
        {
@@ -7405,6 +7408,9 @@
       "bevel": 0.55,
       "grid_color": "#405A4020",
       "grid_width": 1,
+      "zoom": 4,
+      "follow_x": "cursor_live ? cursor_x : -1",
+      "follow_y": "cursor_live ? cursor_y : -1",
       "visible_if": "map_ok",
       "layers": [
        {
