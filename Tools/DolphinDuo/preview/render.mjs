@@ -5,7 +5,9 @@
 //   dolphin-tool duo preview my-companion --mem1 mem1.raw --screen 1240x1080 --json > snap.json
 //   node Tools/DolphinDuo/preview/render.mjs snap.json out.png [--size 1240x1080]
 //
-// --size is the screen in pixels (default: the layout's canvas size). Fonts and images are loaded
+// --size is the screen in pixels (default: the layout's canvas size). --zoom F[@X,Y] shows
+// zoomable grids zoomed F times on cell X,Y (default: the grid's follow_x/follow_y), as a pinch
+// would on the device. Fonts and images are loaded
 // from the companion folder named in the snapshot; disc: images need `duo preview --disc`.
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -19,7 +21,7 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.error('usage: render.mjs <snapshot.json> <out.png> [--size WxH]');
+  console.error('usage: render.mjs <snapshot.json> <out.png> [--size WxH] [--zoom F[@X,Y]]');
   process.exit(1);
 }
 const snapshot = JSON.parse(readFileSync(args[0], 'utf8'));
@@ -31,6 +33,13 @@ let width = snapshot.canvas.w;
 let height = snapshot.canvas.h;
 const sizeIndex = args.indexOf('--size');
 if (sizeIndex >= 0) [width, height] = args[sizeIndex + 1].split('x').map(Number);
+const options = {};
+const zoomIndex = args.indexOf('--zoom');
+if (zoomIndex >= 0) {
+  const [factor, at] = args[zoomIndex + 1].split('@');
+  options.zoom = { factor: Number(factor) };
+  if (at) [options.zoom.x, options.zoom.y] = at.split(',').map(Number);
+}
 
 const base = snapshot.companion && snapshot.companion.directory ? pathToFileURL(snapshot.companion.directory).href.replace(/\/?$/, '/') : '';
 const script = readFileSync(join(here, 'duo-preview.js'), 'utf8');
@@ -56,10 +65,10 @@ for (const path of wanted) {
     inlined[path] = `data:${types[extname(path).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(file).toString('base64')}`;
   }
 }
-await page.evaluate(async ({ snapshot, inlined, base }) => {
+await page.evaluate(async ({ snapshot, inlined, base, options }) => {
   const assets = await window.DuoPreview.loadAssets(snapshot, (path) => inlined[path] || base + path);
-  window.DuoPreview.render(document.getElementById('c'), snapshot, assets);
-}, { snapshot, inlined, base });
+  window.DuoPreview.render(document.getElementById('c'), snapshot, assets, options);
+}, { snapshot, inlined, base, options });
 await page.locator('#c').screenshot({ path: args[1] });
 await browser.close();
 console.log(`wrote ${args[1]} (${width}x${height}, layout ${snapshot.canvas.layout})`);

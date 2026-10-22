@@ -326,13 +326,41 @@
       ctx.restore();
     },
 
-    grid(ctx, e) {
+    grid(ctx, e, info, assets, options) {
       const r = box(e);
       const cols = e.cols | 0, rows = e.rows | 0;
       if (cols <= 0 || rows <= 0) return;
       const cell = Math.min(r.w / cols, r.h / rows);
       const left = r.x + (r.w - cell * cols) / 2;
       const top = r.y + (r.h - cell * rows) / 2;
+      // Pinch zoom is interactive on the device; options.zoom = {factor, x, y} shows a zoomable
+      // grid ("zoom") zoomed in on cell x, y (default: its follow_x/follow_y), like the app does.
+      const maxZoom = Math.min(8, Math.max(1, num(e, 'zoom', 1)));
+      const want = options && options.zoom;
+      if (maxZoom > 1 && want) {
+        const z = Math.min(maxZoom, Math.max(1, want.factor));
+        const fx = want.x != null ? want.x : num(e, 'follow_x', cols / 2 - 0.5);
+        const fy = want.y != null ? want.y : num(e, 'follow_y', rows / 2 - 0.5);
+        const px = left + (fx + 0.5) * cell, py = top + (fy + 0.5) * cell;
+        // Same pan rules as DuoCanvasRenderer.clampPan: keep the box covered, centre when it fits.
+        const clamp = (pan, lo, hi, boxLo, boxHi) =>
+          hi - lo <= boxHi - boxLo ? (lo + hi) / 2 - (boxLo + boxHi) / 2 : Math.min(Math.max(pan, lo - boxLo), hi - boxHi);
+        const l = r.x + (left - r.x) * z, rr = r.x + (left + cols * cell - r.x) * z;
+        const t = r.y + (top - r.y) * z, b = r.y + (top + rows * cell - r.y) * z;
+        const panX = clamp(r.x + (px - r.x) * z - (r.x + r.w / 2), l, rr, r.x, r.x + r.w);
+        const panY = clamp(r.y + (py - r.y) * z - (r.y + r.h / 2), t, b, r.y, r.y + r.h);
+        ctx.save();
+        ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+        ctx.translate(-panX, -panY);
+        ctx.translate(r.x, r.y); ctx.scale(z, z); ctx.translate(-r.x, -r.y);
+        this.gridBody(ctx, e, cols, rows, cell, left, top, z);
+        ctx.restore();
+        return;
+      }
+      this.gridBody(ctx, e, cols, rows, cell, left, top, 1);
+    },
+
+    gridBody(ctx, e, cols, rows, cell, left, top, zoom) {
       if (e.palette && e.cells) {
         const colors = e.palette.map(parseColor);
         for (let i = 0; i < Math.min(e.cells.length, cols * rows); i++) {
@@ -358,7 +386,7 @@
       }
       const gc = col(e, 'grid_color');
       if (gc) {
-        ctx.strokeStyle = gc; ctx.lineWidth = num(e, 'grid_width', 1);
+        ctx.strokeStyle = gc; ctx.lineWidth = num(e, 'grid_width', 1) / zoom;
         ctx.beginPath();
         for (let i = 0; i <= cols; i++) { ctx.moveTo(left + i * cell, top); ctx.lineTo(left + i * cell, top + rows * cell); }
         for (let i = 0; i <= rows; i++) { ctx.moveTo(left, top + i * cell); ctx.lineTo(left + cols * cell, top + i * cell); }
@@ -456,7 +484,7 @@
   }
 
   // Draws the snapshot scaled to fit a canvas of the given pixel size.
-  function render(canvas, snapshot, assets) {
+  function render(canvas, snapshot, assets, options) {
     const ctx = canvas.getContext('2d');
     const info = snapshot.canvas;
     const scale = Math.min(canvas.width / info.w, canvas.height / info.h);
@@ -474,7 +502,7 @@
       ctx.save();
       ctx.globalAlpha = Math.min(1, opacity);
       const draw = drawers[e.t];
-      if (draw) draw(ctx, e, info, assets);
+      if (draw) draw.call(drawers, ctx, e, info, assets, options || {});
       ctx.restore();
     }
     ctx.restore();

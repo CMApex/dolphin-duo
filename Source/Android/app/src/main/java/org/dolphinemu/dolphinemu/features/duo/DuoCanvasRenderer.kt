@@ -42,6 +42,86 @@ class DuoCanvasRenderer {
 
     class Hit(val rect: RectF, val action: String, val source: String, val index: Int)
 
+    /** Pinch-zoom state of a zoomable grid, kept across snapshots. Pan is in canvas units. */
+    private class GridZoom {
+        var zoom = 1f
+        var panX = 0f
+        var panY = 0f
+        var lastTouch = 0L
+    }
+
+    /** A zoomable grid as drawn in the last frame: [view] in view pixels, the rest in canvas units. */
+    class ZoomTarget internal constructor(
+        val key: String, val view: RectF, internal val box: RectF, internal val content: RectF,
+        internal val maxZoom: Float, internal val scale: Float, internal val dx: Float, internal val dy: Float
+    )
+
+    private val gridZooms = HashMap<String, GridZoom>()
+    private val zoomTargets = ArrayList<ZoomTarget>()
+
+    /** The zoomable grid under a point of the view, if any. */
+    fun zoomTargetAt(x: Float, y: Float): ZoomTarget? = zoomTargets.lastOrNull { it.view.contains(x, y) }
+
+    /** Zooms by [factor] keeping the content under ([focusX], [focusY]) (view pixels) in place. */
+    fun zoomBy(target: ZoomTarget, factor: Float, focusX: Float, focusY: Float) {
+        val z = gridZooms[target.key] ?: return
+        val box = target.box
+        val qx = (focusX - target.dx) / target.scale
+        val qy = (focusY - target.dy) / target.scale
+        // The unzoomed canvas point under the fingers.
+        val px = box.left + (qx + z.panX - box.left) / z.zoom
+        val py = box.top + (qy + z.panY - box.top) / z.zoom
+        val newZoom = (z.zoom * factor).coerceIn(1f, target.maxZoom)
+        z.panX = box.left + (px - box.left) * newZoom - qx
+        z.panY = box.top + (py - box.top) * newZoom - qy
+        z.zoom = newZoom
+        clampPan(z, box, target.content)
+        z.lastTouch = android.os.SystemClock.uptimeMillis()
+    }
+
+    /** Drags the zoomed content; distances as GestureDetector.onScroll reports them (view pixels). */
+    fun panBy(target: ZoomTarget, distanceX: Float, distanceY: Float) {
+        val z = gridZooms[target.key] ?: return
+        z.panX += distanceX / target.scale
+        z.panY += distanceY / target.scale
+        clampPan(z, target.box, target.content)
+        z.lastTouch = android.os.SystemClock.uptimeMillis()
+    }
+
+    /** Double tap: zoom in around the point, or back out to the whole grid. */
+    fun toggleZoom(target: ZoomTarget, focusX: Float, focusY: Float) {
+        val z = gridZooms[target.key] ?: return
+        val wanted = if (z.zoom > 1.05f) 1f else min(2.5f, target.maxZoom)
+        zoomBy(target, wanted / z.zoom, focusX, focusY)
+    }
+
+    fun isZoomed(target: ZoomTarget): Boolean = (gridZooms[target.key]?.zoom ?: 1f) > 1.01f
+
+    private fun clampPan(z: GridZoom, box: RectF, content: RectF) {
+        // Zoomed content edges with no pan; keep the box covered, or centred when it fits.
+        val l = box.left + (content.left - box.left) * z.zoom
+        val r = box.left + (content.right - box.left) * z.zoom
+        val t = box.top + (content.top - box.top) * z.zoom
+        val b = box.top + (content.bottom - box.top) * z.zoom
+        z.panX = if (r - l <= box.width()) (l + r) / 2 - box.centerX() else z.panX.coerceIn(l - box.left, r - box.right)
+        z.panY = if (b - t <= box.height()) (t + b) / 2 - box.centerY() else z.panY.coerceIn(t - box.top, b - box.bottom)
+    }
+
+    /** Keeps the cell at "follow_x"/"follow_y" in view while zoomed, unless the player just moved the map. */
+    private fun followFocus(e: JSONObject, z: GridZoom, box: RectF, content: RectF, cell: Float) {
+        if (z.zoom <= 1.01f || android.os.SystemClock.uptimeMillis() - z.lastTouch < 2500) return
+        val fx = e.num("follow_x", -1f)
+        val fy = e.num("follow_y", -1f)
+        if (fx < 0f || fy < 0f) return
+        val px = content.left + (fx + 0.5f) * cell
+        val py = content.top + (fy + 0.5f) * cell
+        val qx = box.left + (px - box.left) * z.zoom - z.panX
+        val qy = box.top + (py - box.top) * z.zoom - z.panY
+        val margin = cell * z.zoom * 1.5f
+        if (qx < box.left + margin || qx > box.right - margin) z.panX = box.left + (px - box.left) * z.zoom - box.centerX()
+        if (qy < box.top + margin || qy > box.bottom - margin) z.panY = box.top + (py - box.top) * z.zoom - box.centerY()
+    }
+
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG)
@@ -71,8 +151,10 @@ class DuoCanvasRenderer {
             bitmaps.clear()
             discFailures.clear()
             pending.clear()
+            gridZooms.clear()
             directoryGeneration++
         }
+        zoomTargets.clear()
         val scale = min(viewWidth / info.width, viewHeight / info.height)
         val dx = (viewWidth - info.width * scale) / 2f
         val dy = (viewHeight - info.height * scale) / 2f
@@ -417,6 +499,37 @@ class DuoCanvasRenderer {
         val left = r.left + (r.width() - cell * cols) / 2
         val top = r.top + (r.height() - cell * rows) / 2
 
+        // "zoom": the grid can be pinched up to that factor and dragged around inside its box.
+        val maxZoom = e.num("zoom", 1f).coerceIn(1f, 8f)
+        if (maxZoom <= 1f) {
+            drawGridBody(c, e, cols, rows, cell, left, top, r, null, scale, dx, dy, hits)
+            return
+        }
+        val key = "${r.left.toInt()},${r.top.toInt()},${r.width().toInt()},${r.height().toInt()}"
+        val zoom = gridZooms.getOrPut(key) { GridZoom() }
+        val content = RectF(left, top, left + cell * cols, top + cell * rows)
+        zoom.zoom = zoom.zoom.coerceIn(1f, maxZoom)
+        followFocus(e, zoom, r, content, cell)
+        clampPan(zoom, r, content)
+        zoomTargets.add(
+            ZoomTarget(
+                key, RectF(dx + r.left * scale, dy + r.top * scale, dx + r.right * scale, dy + r.bottom * scale),
+                RectF(r), content, maxZoom, scale, dx, dy
+            )
+        )
+        c.save()
+        c.clipRect(r)
+        c.translate(-zoom.panX, -zoom.panY)
+        c.scale(zoom.zoom, zoom.zoom, r.left, r.top)
+        drawGridBody(c, e, cols, rows, cell, left, top, r, zoom, scale, dx, dy, hits)
+        c.restore()
+    }
+
+    private fun drawGridBody(
+        c: Canvas, e: JSONObject, cols: Int, rows: Int, cell: Float, left: Float, top: Float, r: RectF,
+        zoom: GridZoom?, scale: Float, dx: Float, dy: Float, hits: MutableList<Hit>
+    ) {
+
         val palette = e.optJSONArray("palette")
         val cells = e.optJSONArray("cells")
         if (palette != null && cells != null) {
@@ -451,7 +564,8 @@ class DuoCanvasRenderer {
         }
         color(e, "grid_color")?.let {
             stroke.color = it
-            stroke.strokeWidth = e.num("grid_width", 1f)
+            // Lines keep their width when zoomed.
+            stroke.strokeWidth = e.num("grid_width", 1f) / (zoom?.zoom ?: 1f)
             for (i in 0..cols) c.drawLine(left + i * cell, top, left + i * cell, top + rows * cell, stroke)
             for (i in 0..rows) c.drawLine(left, top + i * cell, left + cols * cell, top + i * cell, stroke)
         }
@@ -555,10 +669,15 @@ class DuoCanvasRenderer {
                 text.clearShadowLayer()
             }
             m.optStringOrNull("action")?.let { action ->
-                val touch = max(half, cell / 2)
+                // Where the mark ended up after zooming, in canvas units; off-screen marks can't be tapped.
+                val k = zoom?.zoom ?: 1f
+                val zx = if (zoom == null) cx else r.left + (cx - r.left) * k - zoom.panX
+                val zy = if (zoom == null) cy else r.top + (cy - r.top) * k - zoom.panY
+                if (zoom != null && !r.contains(zx, zy)) return@let
+                val touch = max(half, cell / 2) * k
                 hits.add(
                     Hit(
-                        RectF(dx + (cx - touch) * scale, dy + (cy - touch) * scale, dx + (cx + touch) * scale, dy + (cy + touch) * scale),
+                        RectF(dx + (zx - touch) * scale, dy + (zy - touch) * scale, dx + (zx + touch) * scale, dy + (zy + touch) * scale),
                         action, m.optString("source", ""), m.optInt("index", -1)
                     )
                 )

@@ -328,13 +328,20 @@ templates, so both can follow the game.
 | `pips` | `x y w h`, `count`, `filled`, `fill`, `off`, `shape` (`diamond` `circle` `square`), `gap` |
 | `image` | `x y w h`, `src` (a file in the companion folder, or a [`disc:` image](#disc-images)), `crop` `[x, y, w, h]` (part of the image, e.g. one icon of an atlas), `slice` `[left, top, right, bottom]` (nine-slice insets in source pixels) with `slice_scale`, `flip_x`, `tint`, `fallback` (another `src`, drawn when `src` can't be loaded, e.g. an image some characters lack). `blend`: `screen` or `add` (for art drawn on black that the game adds onto the screen, such as a logo) or `multiply`. `crop` and `slice` entries are expressions. |
 | `path` | `x y w h`, `d` (SVG path data), `viewbox` `[x, y, w, h]`, `fill`, `stroke`, `stroke_width`: icons and ornaments without image files |
-| `grid` | A tile map: `x y w h`, `cols`, `rows`, optional `view_cols`/`view_rows` with `center_x`/`center_y` to show a window that follows something, `source` + `cell` (colour per cell, from an array in row-major `$slot` order), `grid_color`, `grid_width`, `bevel` (0-1: a light and a dark edge on every tile, for relief), `layers` of marks |
+| `grid` | A tile map: `x y w h`, `cols`, `rows`, optional `view_cols`/`view_rows` with `center_x`/`center_y` to show a window that follows something, `source` + `cell` (colour per cell, from an array in row-major `$slot` order), `grid_color`, `grid_width`, `bevel` (0-1: a light and a dark edge on every tile, for relief), `zoom` (the most it can be pinch-zoomed on the device; see below), `follow_x`/`follow_y` (a cell to keep in view while zoomed), `layers` of marks |
 | `group` | `x`, `y`, `elements`: children placed relative to it |
 | `repeat` | `source` array, `x`, `y`, `dx`, `dy`, `columns`, `limit`, `start`, `where`, `elements`: children once per (matching) element, which see its fields |
 
 `opacity` (0–1) works on everything. Grid `layers` take `source`, `x`, `y` (in cells), `where`,
 `fill`, `stroke`, `shape` (`dot` `square` `diamond` `ring` `cursor`; `token`, a unit counter with a shadow, rim and glint; map symbols `tree` `peak` `wave`), `size` (fraction of a cell),
 `label` and `action`.
+
+A grid with `zoom` above 1 can be pinched on the device, up to that factor, and dragged while zoomed
+in; a double tap toggles between the whole grid and 2.5x. Marks keep working as tap targets at any
+zoom. While zoomed, the view keeps `follow_x`/`follow_y` (cells, e.g. the game's cursor; negative
+for none) in sight, unless the player touched the grid in the last few seconds. Zooming happens
+entirely in the app, without a round trip through the emulator; `render.mjs --zoom F[@X,Y]` shows
+the same view on the desktop.
 
 ### Disc images
 

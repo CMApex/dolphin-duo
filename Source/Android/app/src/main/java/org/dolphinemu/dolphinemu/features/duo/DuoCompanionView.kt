@@ -19,6 +19,7 @@ import android.text.TextUtils
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.OverScroller
 import java.io.File
@@ -106,16 +107,47 @@ class DuoCompanionView(context: Context) : View(context) {
     private val layoutCache = LinkedHashMap<String, StaticLayout>(64, 0.75f, true)
     private val bitmapCache = HashMap<String, Bitmap?>()
 
+    // A zoomable grid (a canvas page's map) under the current gesture: pinch zooms it, a drag
+    // moves it while zoomed in, a double tap toggles zoom.
+    private var zoomTarget: DuoCanvasRenderer.ZoomTarget? = null
+
+    private val scaleGestures = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean =
+            canvasRenderer.zoomTargetAt(detector.focusX, detector.focusY)?.also { zoomTarget = it } != null
+
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val target = zoomTarget ?: return false
+            canvasRenderer.zoomBy(target, detector.scaleFactor, detector.focusX, detector.focusY)
+            invalidate()
+            return true
+        }
+    }).apply { isQuickScaleEnabled = false }
+
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
             scroller.forceFinished(true)
+            zoomTarget = if (snapshot.canvas != null) canvasRenderer.zoomTargetAt(e.x, e.y) else null
             return true
         }
 
         override fun onScroll(
             e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float
         ): Boolean {
+            if (scaleGestures.isInProgress) return true
+            val target = zoomTarget
+            if (target != null && canvasRenderer.isZoomed(target)) {
+                canvasRenderer.panBy(target, distanceX, distanceY)
+                invalidate()
+                return true
+            }
             scrollBy(distanceY)
+            return true
+        }
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            val target = zoomTarget ?: return false
+            canvasRenderer.toggleZoom(target, e.x, e.y)
+            invalidate()
             return true
         }
 
@@ -155,7 +187,12 @@ class DuoCompanionView(context: Context) : View(context) {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Both see every event; a second finger cancels taps, and scrolls are ignored mid-pinch.
+        scaleGestures.onTouchEvent(event)
+        gestures.onTouchEvent(event)
+        return true
+    }
 
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) {
