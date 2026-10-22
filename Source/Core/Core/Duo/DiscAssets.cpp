@@ -73,7 +73,8 @@ std::optional<DiscImageRef> ParseDiscImageRef(std::string_view source)
   {
     const std::string_view number = source.substr(hash + 1);
     const auto [end, ec] = std::from_chars(number.data(), number.data() + number.size(), ref.index);
-    if (ec != std::errc() || end != number.data() + number.size() || ref.index > 255)
+    if (ec != std::errc() || end != number.data() + number.size() || ref.index > 255 ||
+        ref.index < -256)
       return std::nullopt;
     source = source.substr(0, hash);
   }
@@ -170,7 +171,7 @@ std::optional<std::vector<u8>> ExtractPackMember(std::span<const u8> pack, std::
   return std::nullopt;
 }
 
-std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::string* error)
+std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, s32 requested, std::string* error)
 {
   const auto fail = [&](std::string message) -> std::optional<DecodedImage> {
     if (error)
@@ -181,8 +182,10 @@ std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::s
     return fail("not a TPL texture");
   const u32 count = Read32(tpl, 4);
   const u32 table = Read32(tpl, 8);
-  if (index >= count)
-    return fail(fmt::format("the texture has {} images, not #{}", count, index));
+  const s64 wanted = requested < 0 ? static_cast<s64>(count) + requested : requested;
+  if (wanted < 0 || wanted >= count)
+    return fail(fmt::format("the texture has {} images, not #{}", count, requested));
+  const u32 index = static_cast<u32>(wanted);
 
   const u32 image_header = Read32(tpl, table + index * 8);
   const u32 palette_header = Read32(tpl, table + index * 8 + 4);

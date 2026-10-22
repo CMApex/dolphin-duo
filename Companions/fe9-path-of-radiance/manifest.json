@@ -4660,12 +4660,11 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#-1",
         "x": 1064.0,
         "y": 226,
         "w": 148,
         "h": 148,
-        "fallback": "disc:Face/{substr(units[focus].fid, 4)}.cms#1",
         "visible_if": "$disc && units[focus].fid != null"
        },
        {
@@ -6331,12 +6330,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 38.087804878048786,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -6716,12 +6714,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 869.1121951219512,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {
@@ -7791,12 +7788,11 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#-1",
         "x": 884.0,
         "y": 190,
         "w": 116,
         "h": 116,
-        "fallback": "disc:Face/{substr(units[focus].fid, 4)}.cms#1",
         "visible_if": "$disc && units[focus].fid != null"
        },
        {
@@ -9246,12 +9242,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 83.2848780487805,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -9631,12 +9626,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 737.6751219512195,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {
@@ -10420,7 +10414,7 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(fid, 4)}.cms#-1",
         "x": 2,
         "y": -1,
         "w": 56,
@@ -10618,7 +10612,7 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(fid, 4)}.cms#-1",
         "x": 2,
         "y": -1,
         "w": 56,
@@ -10897,12 +10891,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 38.087804878048786,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -11282,12 +11275,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 869.1121951219512,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {
@@ -12064,7 +12056,7 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(fid, 4)}.cms#-1",
         "x": 2,
         "y": -1,
         "w": 48,
@@ -12262,7 +12254,7 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(fid, 4)}.cms#-1",
         "x": 2,
         "y": -1,
         "w": 48,
@@ -12541,12 +12533,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 83.2848780487805,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -12926,12 +12917,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 737.6751219512195,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {
@@ -13707,12 +13697,11 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#-1",
         "x": 452.0,
         "y": 226,
         "w": 148,
         "h": 148,
-        "fallback": "disc:Face/{substr(units[focus].fid, 4)}.cms#1",
         "visible_if": "$disc && units[focus].fid != null"
        },
        {
@@ -16018,12 +16007,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 38.087804878048786,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -16403,12 +16391,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 869.1121951219512,
           "y": 238,
           "w": 332.8,
           "h": 332.8,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {
@@ -17177,12 +17164,11 @@
        },
        {
         "type": "image",
-        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#13",
+        "src": "disc:Face/{substr(units[focus].fid, 4)}.cms#-1",
         "x": 378.0,
         "y": 190,
         "w": 116,
         "h": 116,
-        "fallback": "disc:Face/{substr(units[focus].fid, 4)}.cms#1",
         "visible_if": "$disc && units[focus].fid != null"
        },
        {
@@ -19488,12 +19474,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#-1",
           "x": 83.2848780487805,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fl].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fl].fid != null"
          },
          {
@@ -19873,12 +19858,11 @@
          },
          {
           "type": "image",
-          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#13",
+          "src": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#-1",
           "x": 737.6751219512195,
           "y": 192,
           "w": 203.04,
           "h": 203.04,
-          "fallback": "disc:Face/{substr(fighters[fr].fid, 4)}.cms#1",
           "visible_if": "$disc && fighters[fr].fid != null"
          },
          {

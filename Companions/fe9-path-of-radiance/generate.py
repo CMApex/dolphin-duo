@@ -408,10 +408,10 @@ def item_icon(x, y, size, u, k, visible_if):
 
 
 def portrait(x, y, size, u, visible_if=None):
-    """The character's small portrait: Face/<FID>.cms image 13 (64x64). Generic units (soldiers,
-    bandits) have a crest instead, whose texture has only two images: #1 is the 64x64 one."""
-    face = f"disc:Face/{{substr({u}.fid, 4)}}.cms"
-    return [disc_img(f"{face}#13", x, y, size, size, fallback=f"{face}#1",
+    """The character's small portrait: the last image of Face/<FID>.cms (64x64). Most faces have 14
+    images, but faces without eye frames (Oscar, whose eyes are always closed, laguz, some
+    soldiers) have 8, and generic units' crests have 2, so count from the end."""
+    return [disc_img(f"disc:Face/{{substr({u}.fid, 4)}}.cms#-1", x, y, size, size,
                      visible_if=both(visible_if, f"$disc && {u}.fid != null"))]
 
 
@@ -734,7 +734,7 @@ def roster_column(x, y, w, h, army, title, color, compact):
          'fill': "{$index == focus ? '#26FFFFFF' : '#0DFFFFFF'}", 'action': 'inspect_unit'},
         {'type': 'path', 'x': 10, 'y': (row_h - 6) / 2 - 10, 'w': 20, 'h': 20, 'viewbox': [0, 0, 24, 24],
          'd': 'M12 1 L23 12 L12 23 L1 12 Z', 'fill': color, 'visible_if': '!$disc || fid == null'},
-        disc_img("disc:Face/{substr(fid, 4)}.cms#13", 2, -1, row_h - 4, row_h - 4,
+        disc_img("disc:Face/{substr(fid, 4)}.cms#-1", 2, -1, row_h - 4, row_h - 4,
                  visible_if='$disc && fid != null'),
         text(row_h + 4, 2, (w - 36) * 0.36 - row_h + 36, row_h * 0.5, '{name}', row_h * 0.4),
         text(row_h + 4, row_h * 0.48, (w - 36) * 0.36 - row_h + 36, row_h * 0.4, '{cls}', row_h * 0.3,

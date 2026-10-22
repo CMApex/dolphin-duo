@@ -340,16 +340,18 @@ templates, so both can follow the game.
 
 A companion can show the game's own art without shipping any of it: an `image` whose `src` starts
 with `disc:` is read from the player's disc while the game runs, decoded with Dolphin's GameCube
-texture decoders and cached as a PNG under `<Dolphin user folder>/Duo/Cache/<game id>/`.
+texture decoders and cached as a PNG under `<Dolphin user folder>/Duo/Cache/<game id>_r<revision>/`.
 
 | `src` | Meaning |
 |---|---|
 | `disc:window/level.tpl#3` | Image 3 of a TPL texture file. |
 | `disc:Face/IKE.cms#13` | `.cms`/`.cmp` (LZ10-compressed) files are decompressed first. |
 | `disc:zmap/bmap01/map.cmp>texpack.tpl#0` | A member of a `pack` archive. |
+| `disc:Face/OSCAR.cms#-1` | A negative number counts from the end: `#-1` is the last image. |
 
-`src` is a template, so it can follow the game: `"disc:Face/{substr(fid, 4)}.cms#13"` shows the
-portrait of whichever character is selected. Window frames usually need `slice`: corners keep their
+`src` is a template, so it can follow the game: `"disc:Face/{substr(fid, 4)}.cms#-1"` shows the
+portrait of whichever character is selected. (Path of Radiance keeps the small portrait last, but
+the number of images before it varies between characters, hence `#-1`.) Window frames usually need `slice`: corners keep their
 size (times `slice_scale`), edges stretch along one axis and the centre along both, so one texture
 fits any panel. Use `crop` to pick one icon out of an atlas, or one piece of a texture that packs
 several.

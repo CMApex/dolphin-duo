@@ -7,6 +7,7 @@
 //   disc:window/level.tpl#3                 image 3 of a TPL texture file
 //   disc:Face/IKE.cms#13                    .cms/.cmp files are LZ10-compressed
 //   disc:zmap/bmap01/map.cmp>texpack.tpl#0  a member of a "pack" archive
+//   disc:Face/OSCAR.cms#-1                  the last image (counts differ between files)
 //
 // The image is decoded once with Dolphin's GameCube texture decoders and cached as a PNG.
 
@@ -27,7 +28,7 @@ struct DiscImageRef
 {
   std::string file;    // Path on the disc, e.g. "window/level.tpl".
   std::string member;  // File inside a "pack" archive, or empty.
-  u32 index = 0;       // Image within the TPL.
+  s32 index = 0;       // Image within the TPL; negative counts from the end (-1 is the last).
 };
 
 struct DecodedImage
@@ -37,7 +38,8 @@ struct DecodedImage
   std::vector<u8> rgba;  // width * height * 4 bytes, R G B A.
 };
 
-// Parses "disc:<file>[><member>][#<index>]". Returns nullopt for anything else or unsafe paths.
+// Parses "disc:<file>[><member>][#<index>]"; "#-1" is the last image. Returns nullopt for anything
+// else or unsafe paths.
 std::optional<DiscImageRef> ParseDiscImageRef(std::string_view source);
 
 // Nintendo LZ10 (".cmp", ".cms"). Returns nullopt if the data is not valid LZ10.
@@ -49,8 +51,8 @@ std::vector<u8> MaybeDecompress(std::vector<u8> data);
 // A member of an Intelligent Systems "pack" archive.
 std::optional<std::vector<u8>> ExtractPackMember(std::span<const u8> pack, std::string_view name);
 
-// Decodes image `index` of a GameCube TPL texture file.
-std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, u32 index, std::string* error);
+// Decodes image `index` of a GameCube TPL texture file; a negative index counts from the end.
+std::optional<DecodedImage> DecodeTPL(std::span<const u8> tpl, s32 index, std::string* error);
 
 // Decodes an Intelligent Systems message table (Fire Emblem's ".m" files) into key -> text, both
 // UTF-8. Keys are Shift-JIS; text is Shift-JIS when `shift_jis` is set (Japanese discs), otherwise

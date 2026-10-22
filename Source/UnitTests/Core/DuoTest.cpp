@@ -792,7 +792,7 @@ TEST(DuoDiscAssets, ParsesReferences)
   const std::optional<Duo::DiscImageRef> plain = Duo::ParseDiscImageRef("disc:window/level.tpl#3");
   ASSERT_TRUE(plain.has_value());
   EXPECT_EQ(plain->file, "window/level.tpl");
-  EXPECT_EQ(plain->index, 3u);
+  EXPECT_EQ(plain->index, 3);
   EXPECT_TRUE(plain->member.empty());
 
   const std::optional<Duo::DiscImageRef> member =
@@ -800,15 +800,20 @@ TEST(DuoDiscAssets, ParsesReferences)
   ASSERT_TRUE(member.has_value());
   EXPECT_EQ(member->file, "zmap/bmap01/map.cmp");
   EXPECT_EQ(member->member, "texpack.tpl");
-  EXPECT_EQ(member->index, 0u);
+  EXPECT_EQ(member->index, 0);
 
   // Some members have folder-like names.
   const std::optional<Duo::DiscImageRef> nested =
       Duo::ParseDiscImageRef("disc:title.cmp>window/title.tpl#2");
   ASSERT_TRUE(nested.has_value());
   EXPECT_EQ(nested->member, "window/title.tpl");
-  EXPECT_EQ(nested->index, 2u);
+  EXPECT_EQ(nested->index, 2);
   EXPECT_FALSE(Duo::ParseDiscImageRef("disc:title.cmp>../x.tpl").has_value());
+
+  // Counting from the end: the last image of a texture whose image count varies.
+  const std::optional<Duo::DiscImageRef> last = Duo::ParseDiscImageRef("disc:Face/OSCAR.cms#-1");
+  ASSERT_TRUE(last.has_value());
+  EXPECT_EQ(last->index, -1);
 
   EXPECT_FALSE(Duo::ParseDiscImageRef("images/a.png").has_value());
   EXPECT_FALSE(Duo::ParseDiscImageRef("disc:../secret.tpl").has_value());
@@ -889,6 +894,11 @@ TEST(DuoDiscAssets, DecodesTPL)
   EXPECT_LT(image->rgba[5 * 4 + 3], 200);
 
   EXPECT_FALSE(Duo::DecodeTPL(tpl, 1, &error).has_value());
+  // -1 is the last (here the only) image; counting past the start fails.
+  const std::optional<Duo::DecodedImage> last = Duo::DecodeTPL(tpl, -1, &error);
+  ASSERT_TRUE(last.has_value()) << error;
+  EXPECT_EQ(last->rgba, image->rgba);
+  EXPECT_FALSE(Duo::DecodeTPL(tpl, -2, &error).has_value());
   tpl[1] = 0;  // Break the magic number.
   EXPECT_FALSE(Duo::DecodeTPL(tpl, 0, &error).has_value());
 }
